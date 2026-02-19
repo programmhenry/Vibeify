@@ -1,0 +1,5 @@
+{
+  "name": "Vibeify AI",
+  "description": "An intelligent Spotify playlist generator powered by Google Gemini. Scan your library, define a vibe, and let AI curate the perfect mix.",
+  "requestFramePermissions": []
+}
