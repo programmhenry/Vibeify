@@ -56,7 +56,26 @@ export enum AppState {
   DASHBOARD = 'DASHBOARD',
   GENERATING = 'GENERATING',
   RESULT = 'RESULT',
-  SAVED_VIBES = 'SAVED_VIBES'
+  SAVED_VIBES = 'SAVED_VIBES',
+  CULTURE_DECK = 'CULTURE_DECK'
+}
+
+export interface CultureDeckTrack {
+  artist: string;
+  track_name: string;
+  category: 'Anthem' | 'Fan Favorite' | 'Deep Cut' | 'Zeitgeist';
+  why_it_matters: string;
+  uri?: string;
+  image?: string;
+}
+
+export interface CultureDeck {
+  id: string;
+  mode: 'DEFINITIVE_ARTIST' | 'SONIC_BRIDGE' | 'HORIZON_SCAN' | 'ZEITGEIST_RADAR';
+  inputContext: string;
+  curator_briefing: string;
+  playlist_name: string;
+  tracks: CultureDeckTrack[];
 }
 
 export interface GenerationRequest {

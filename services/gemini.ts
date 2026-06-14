@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { SpotifyTrack } from '../types';
+import { SpotifyTrack, CultureDeck, CultureDeckTrack } from '../types';
 
 const ai = new GoogleGenAI({
   apiKey: import.meta.env.VITE_GEMINI_API_KEY
@@ -284,4 +284,151 @@ export const generateMusicalBio = async (stats: {
   });
 
   return response.text || "Your musical soul is a beautiful mystery.";
+};
+
+export interface CultureDeckResponse {
+  playlist_name: string;
+  curator_briefing: string;
+  tracks: CultureDeckTrack[];
+}
+
+export const generateCultureDeck = async (
+  mode: 'DEFINITIVE_ARTIST' | 'SONIC_BRIDGE' | 'HORIZON_SCAN' | 'ZEITGEIST_RADAR',
+  inputContext: string
+): Promise<CultureDeckResponse> => {
+  const systemInstruction = `
+    You are an elite musicologist, cultural historian, and legendary DJ.
+    Your task is to generate a highly curated "Culture Deck" playlist structure based on the chosen mode.
+    
+    CRITICAL RULES FOR EACH MODE:
+    1. "DEFINITIVE_ARTIST": 
+       - User Input: Name of an artist.
+       - Provide EXACTLY 20-25 tracks.
+       - EXACTLY 5 tracks with category "Anthem" (the artist's biggest, defining global hits).
+       - EXACTLY 5 tracks with category "Fan Favorite" (deeper album cuts loved by fans).
+       - EXACTLY 5 tracks with category "Deep Cut" (obscure, rare, or early tracks showing the artist's DNA).
+       - EXACTLY 5-10 tracks with category "Zeitgeist" (recent relevant tracks, new collabs, or contemporary tracks that show their current standing in culture).
+    
+    2. "SONIC_BRIDGE":
+       - User Input: Format "Genre/Artist A to Genre/Artist B" (e.g. "Hip Hop to House").
+       - Curate a playlist of 15-20 tracks that smoothly transition from A to B.
+       - Use crossover artists (e.g. Kaytranada, Channel Tres, etc.).
+       - Categorize tracks based on where they lie: "Anthem" (huge crossover hits), "Fan Favorite" (definitive bridge tracks), "Deep Cut" (underground fusion), "Zeitgeist" (brand new tracks executing this fusion).
+       
+    3. "HORIZON_SCAN":
+       - User Input: A specific subculture, decade, or city (e.g. "UK Grime 2015", "Detroit Techno 90s").
+       - Curate 15-20 historical, fundamental tracks of this specific movement.
+       - Categorize: "Anthem" (scene giants), "Fan Favorite" (cult classics), "Deep Cut" (obscure/raw tracks that shaped the subculture), "Zeitgeist" (contemporary tracks keeping that specific spirit alive).
+       
+    4. "ZEITGEIST_RADAR":
+       - User Input: A list of artists separated by commas (e.g. "Drake, Travis Scott, Kanye West") or general trend.
+       - Curate 15-20 brand new, progressive tracks (e.g., 3-5 songs per artist if multiple artists are given, or top trending tracks).
+       - All tracks must be from different artists if possible, representing the cutting edge of current musical discourse.
+       - Categorize all of these as "Zeitgeist".
+    
+    For each track, you MUST provide a "why_it_matters" field explaining in 1-2 short sentences its exact cultural relevance or context.
+    Return the response as a strict JSON matching the schema. Do not hallucinate artists and song titles; verify they exist.
+  `;
+
+  const userPrompt = `
+    Mode: ${mode}
+    Input Context: "${inputContext}"
+    
+    Generate the playlist. Ensure all tracks are real, and provide the curator_briefing explaining the historical/cultural context of this selection in 3-4 elegant sentences.
+  `;
+
+  const response = await ai.models.generateContent({
+    model: 'gemini-3-flash-preview',
+    contents: userPrompt,
+    config: {
+      systemInstruction: systemInstruction,
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          playlist_name: { type: Type.STRING },
+          curator_briefing: { type: Type.STRING },
+          tracks: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                artist: { type: Type.STRING },
+                track_name: { type: Type.STRING },
+                category: { 
+                  type: Type.STRING, 
+                  enum: ["Anthem", "Fan Favorite", "Deep Cut", "Zeitgeist"] 
+                },
+                why_it_matters: { type: Type.STRING }
+              },
+              required: ["artist", "track_name", "category", "why_it_matters"]
+            }
+          }
+        },
+        required: ["playlist_name", "curator_briefing", "tracks"]
+      }
+    }
+  });
+
+  if (!response.text) throw new Error("AI returned empty response");
+  return JSON.parse(response.text) as CultureDeckResponse;
+};
+
+export const rerollCultureDeck = async (
+  currentDeck: CultureDeck
+): Promise<CultureDeckResponse> => {
+  const systemInstruction = `
+    You are an elite musicologist. You are performing a "Dynamic Reroll" on a Culture Deck.
+    
+    RULES:
+    1. KEEP ALL tracks categorized as "Anthem" exactly as they are.
+    2. REPLACE all tracks categorized as "Fan Favorite", "Deep Cut", and "Zeitgeist" (if applicable) with alternative, equally good tracks fitting the same theme/mode ("${currentDeck.mode}") and context ("${currentDeck.inputContext}").
+    3. The size of the playlist must match the original.
+    4. Provide a new curator_briefing that reflects the updated selection.
+    5. Return the result in strict JSON format.
+  `;
+
+  const userPrompt = `
+    Current Deck Name: ${currentDeck.playlist_name}
+    Current Tracks:
+    ${JSON.stringify(currentDeck.tracks)}
+    
+    Perform a Reroll. Retain the "Anthem" tracks, but supply new replacements for the other categories. Ensure all songs are real.
+  `;
+
+  const response = await ai.models.generateContent({
+    model: 'gemini-3-flash-preview',
+    contents: userPrompt,
+    config: {
+      systemInstruction: systemInstruction,
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          playlist_name: { type: Type.STRING },
+          curator_briefing: { type: Type.STRING },
+          tracks: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                artist: { type: Type.STRING },
+                track_name: { type: Type.STRING },
+                category: { 
+                  type: Type.STRING, 
+                  enum: ["Anthem", "Fan Favorite", "Deep Cut", "Zeitgeist"] 
+                },
+                why_it_matters: { type: Type.STRING }
+              },
+              required: ["artist", "track_name", "category", "why_it_matters"]
+            }
+          }
+        },
+        required: ["playlist_name", "curator_briefing", "tracks"]
+      }
+    }
+  });
+
+  if (!response.text) throw new Error("AI returned empty response");
+  return JSON.parse(response.text) as CultureDeckResponse;
 };

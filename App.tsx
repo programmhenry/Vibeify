@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { AppState, SpotifyUser, SpotifyTrack, GenerationRequest, Seed } from './types';
+import { AppState, SpotifyUser, SpotifyTrack, GenerationRequest, Seed, CultureDeck, CultureDeckTrack } from './types';
 import * as SpotifyService from './services/spotify';
 import * as GeminiService from './services/gemini';
 import {
@@ -86,6 +86,7 @@ const Sidebar = ({
   handleRescan,
   handleDeleteMix,
   setGeneratedResult,
+  setGeneratedCultureDeck,
   onLogout,
   isOpen,
   onClose,
@@ -120,6 +121,12 @@ const Sidebar = ({
                 <Zap size={18} /> Dashboard
               </button>
               <button
+                onClick={() => { setAppState(AppState.CULTURE_DECK); onClose(); }}
+                className={`flex items-center gap-3 w-full text-left transition-colors ${appState === AppState.CULTURE_DECK ? 'text-[#1DB954] font-bold' : 'text-gray-300 hover:text-white'}`}
+              >
+                <Compass size={18} /> Culture Deck
+              </button>
+              <button
                 onClick={() => { setAppState(AppState.SAVED_VIBES); onClose(); }}
                 className={`flex items-center gap-3 w-full text-left transition-colors ${appState === AppState.SAVED_VIBES ? 'text-[#1DB954] font-bold' : 'text-gray-300 hover:text-white'}`}
               >
@@ -140,13 +147,18 @@ const Sidebar = ({
                 <div key={mix.id} className="group relative flex items-center">
                   <button
                     onClick={() => {
-                      setGeneratedResult({
-                        name: mix.name,
-                        desc: mix.description,
-                        uris: mix.uris,
-                        reasoning: mix.reasoning
-                      });
-                      setAppState(AppState.RESULT);
+                      if (mix.isCultureDeck) {
+                        setGeneratedCultureDeck(mix.cultureDeckData);
+                        setAppState(AppState.CULTURE_DECK);
+                      } else {
+                        setGeneratedResult({
+                          name: mix.name,
+                          desc: mix.description,
+                          uris: mix.uris,
+                          reasoning: mix.reasoning
+                        });
+                        setAppState(AppState.RESULT);
+                      }
                       onClose();
                     }}
                     className="flex-1 text-left py-2 px-3 rounded hover:bg-[#282828] text-sm text-gray-400 hover:text-white transition-all truncate flex items-center gap-2"
@@ -635,6 +647,60 @@ const UserInsightsModal = ({ isOpen, onClose, library, token }: any) => {
   );
 };
 
+const CULTURE_DECK_PRESETS = {
+  DEFINITIVE_ARTIST: [
+    { name: 'Daft Punk', description: 'The Electronic Pioneers', query: 'Daft Punk', image: '🤖' },
+    { name: 'Kendrick Lamar', description: 'The Poet of Compton', query: 'Kendrick Lamar', image: '🎤' },
+    { name: 'Radiohead', description: 'The Art-Rock Innovators', query: 'Radiohead', image: '🎸' }
+  ],
+  SONIC_BRIDGE: [
+    { name: 'Hip Hop to House', description: 'From boom-bap rhythms to 4x4 electronic beats', query: 'Hip Hop to House', image: '🌉' },
+    { name: 'Post-Punk to Techno', description: 'Industrial drums and dark synth waves', query: 'Post-Punk to Techno', image: '⚡' },
+    { name: 'Jazz to Hip Hop', description: 'The fundamental connection of breakbeats and sampling', query: 'Jazz to Hip Hop', image: '🎺' }
+  ],
+  HORIZON_SCAN: [
+    { name: 'UK Grime 2015', description: 'The golden era of London grime (Skepta, Jme, Stormzy)', query: 'UK Grime 2015', image: '🇬🇧' },
+    { name: 'Detroit Techno 90s', description: 'The birth of techno from the Belleville Three', query: 'Detroit Techno 90s', image: '⚙️' },
+    { name: 'French Touch 90s/00s', description: 'The disco-infused filter house revolution in Paris', query: 'French Touch 90s/00s', image: '🇫🇷' }
+  ],
+  ZEITGEIST_RADAR: [
+    { name: 'Kanye, Travis, Drake', description: 'The Modern Rap Titans', query: 'Kanye West, Travis Scott, Drake', image: '🔥' },
+    { name: 'Fred again.., Overmono, Four Tet', description: 'The UK Electronic Vanguard', query: 'Fred again.., Overmono, Four Tet', image: '🎛️' },
+    { name: 'Billie Eilish, Olivia Rodrigo, Charli XCX', description: 'Modern Pop Disruptors', query: 'Billie Eilish, Olivia Rodrigo, Charli XCX', image: '💥' }
+  ]
+};
+
+const CultureDeckCover = ({ tracks }: { tracks: CultureDeckTrack[] }) => {
+  // Get tracks with resolved image URLs
+  const coverTracks = tracks.filter(t => !!t.image).slice(0, 4);
+  
+  if (coverTracks.length >= 4) {
+    return (
+      <div className="grid grid-cols-2 grid-rows-2 w-full h-full rounded-2xl overflow-hidden shadow-2xl shrink-0">
+        {coverTracks.map((t, i) => (
+          <img key={i} src={t.image} alt={t.track_name} className="w-full h-full object-cover" />
+        ))}
+      </div>
+    );
+  }
+  
+  if (coverTracks.length > 0) {
+    return (
+      <img 
+        src={coverTracks[0].image} 
+        alt="Playlist Cover" 
+        className="w-full h-full object-cover rounded-2xl shadow-2xl shrink-0" 
+      />
+    );
+  }
+  
+  return (
+    <div className="w-full h-full bg-gradient-to-br from-indigo-900 via-[#1DB954] to-black flex items-center justify-center rounded-2xl shadow-2xl shrink-0 text-white/50 text-xs uppercase tracking-widest font-black">
+      Culture Deck
+    </div>
+  );
+};
+
 export default function App() {
   const [token, setToken] = useState<string | null>(null);
   const [clientId, setClientId] = useState<string>('6af5049db3e24dd9a794fabd6721e7df');
@@ -666,6 +732,35 @@ export default function App() {
   const [isRescanning, setIsRescanning] = useState(false);
   const [isRefreshingVibes, setIsRefreshingVibes] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  // Culture Deck States
+  const [generatedCultureDeck, setGeneratedCultureDeck] = useState<CultureDeck | null>(null);
+  const [activeDeckMode, setActiveDeckMode] = useState<'DEFINITIVE_ARTIST' | 'SONIC_BRIDGE' | 'HORIZON_SCAN' | 'ZEITGEIST_RADAR' | null>(null);
+
+  // Selected Objects
+  const [selectedDefArtist, setSelectedDefArtist] = useState<any | null>(null);
+  const [selectedZeitgeistArtists, setSelectedZeitgeistArtists] = useState<any[]>([]);
+  const [selectedBridgeFrom, setSelectedBridgeFrom] = useState<any | null>(null);
+  const [selectedBridgeTo, setSelectedBridgeTo] = useState<any | null>(null);
+
+  // Search Inputs
+  const [defArtistSearchQuery, setDefArtistSearchQuery] = useState('');
+  const [zeitgeistSearchQuery, setZeitgeistSearchQuery] = useState('');
+  const [bridgeFromSearchQuery, setBridgeFromSearchQuery] = useState('');
+  const [bridgeToSearchQuery, setBridgeToSearchQuery] = useState('');
+
+  // Search Results
+  const [defArtistSearchResults, setDefArtistSearchResults] = useState<any[]>([]);
+  const [zeitgeistSearchResults, setZeitgeistSearchResults] = useState<any[]>([]);
+  const [bridgeFromSearchResults, setBridgeFromSearchResults] = useState<any[]>([]);
+  const [bridgeToSearchResults, setBridgeToSearchResults] = useState<any[]>([]);
+
+  // Suggestions (Related Artists)
+  const [defArtistSuggestions, setDefArtistSuggestions] = useState<any[]>([]);
+  const [zeitgeistSuggestions, setZeitgeistSuggestions] = useState<any[]>([]);
+
+  // Text inputs
+  const [horizonInput, setHorizonInput] = useState('');
 
   // Customization States
   const [targetLength, setTargetLength] = useState(30);
@@ -711,6 +806,78 @@ export default function App() {
 
     return () => clearTimeout(handler);
   }, [modalSearchQuery, token]);
+
+  // Debounced search for Definitive Artist input
+  useEffect(() => {
+    if (!defArtistSearchQuery.trim()) {
+      setDefArtistSearchResults([]);
+      return;
+    }
+    const handler = setTimeout(async () => {
+      if (!token) return;
+      try {
+        const results = await SpotifyService.searchItems(token, defArtistSearchQuery);
+        setDefArtistSearchResults(results.filter(r => r.type === 'artist'));
+      } catch (err) {
+        console.error("Definitive artist search failed:", err);
+      }
+    }, 450);
+    return () => clearTimeout(handler);
+  }, [defArtistSearchQuery, token]);
+
+  // Debounced search for Zeitgeist Radar input
+  useEffect(() => {
+    if (!zeitgeistSearchQuery.trim()) {
+      setZeitgeistSearchResults([]);
+      return;
+    }
+    const handler = setTimeout(async () => {
+      if (!token) return;
+      try {
+        const results = await SpotifyService.searchItems(token, zeitgeistSearchQuery);
+        setZeitgeistSearchResults(results.filter(r => r.type === 'artist'));
+      } catch (err) {
+        console.error("Zeitgeist search failed:", err);
+      }
+    }, 450);
+    return () => clearTimeout(handler);
+  }, [zeitgeistSearchQuery, token]);
+
+  // Debounced search for Sonic Bridge From input
+  useEffect(() => {
+    if (!bridgeFromSearchQuery.trim()) {
+      setBridgeFromSearchResults([]);
+      return;
+    }
+    const handler = setTimeout(async () => {
+      if (!token) return;
+      try {
+        const results = await SpotifyService.searchItems(token, bridgeFromSearchQuery);
+        setBridgeFromSearchResults(results);
+      } catch (err) {
+        console.error("Bridge from search failed:", err);
+      }
+    }, 450);
+    return () => clearTimeout(handler);
+  }, [bridgeFromSearchQuery, token]);
+
+  // Debounced search for Sonic Bridge To input
+  useEffect(() => {
+    if (!bridgeToSearchQuery.trim()) {
+      setBridgeToSearchResults([]);
+      return;
+    }
+    const handler = setTimeout(async () => {
+      if (!token) return;
+      try {
+        const results = await SpotifyService.searchItems(token, bridgeToSearchQuery);
+        setBridgeToSearchResults(results);
+      } catch (err) {
+        console.error("Bridge to search failed:", err);
+      }
+    }, 450);
+    return () => clearTimeout(handler);
+  }, [bridgeToSearchQuery, token]);
 
   const handleSelectSeed = (seed: Seed) => {
     if (vibeForm.selectedSeeds.some(s => s.id === seed.id)) return;
@@ -1200,6 +1367,211 @@ export default function App() {
     }
   };
 
+  const handleSelectDefArtist = async (artist: any) => {
+    setSelectedDefArtist(artist);
+    setDefArtistSearchQuery(artist.name);
+    setDefArtistSearchResults([]);
+    
+    // Fetch related artists
+    if (token) {
+      try {
+        const related = await SpotifyService.fetchRelatedArtists(token, artist.id);
+        setDefArtistSuggestions(related.slice(0, 4));
+      } catch (e) {
+        console.error("Failed to fetch related artists", e);
+      }
+    }
+  };
+
+  const updateZeitgeistSuggestions = async (authToken: string, selectedArtists: any[]) => {
+    if (selectedArtists.length === 0) {
+      setZeitgeistSuggestions([]);
+      return;
+    }
+    try {
+      const allRelatedPromises = selectedArtists.map(a => SpotifyService.fetchRelatedArtists(authToken, a.id));
+      const allRelatedResults = await Promise.all(allRelatedPromises);
+      
+      // Count frequencies of related artists
+      const frequencyMap: Record<string, { count: number; artist: any }> = {};
+      allRelatedResults.forEach((list) => {
+        list.forEach((artist: any) => {
+          // Exclude already selected artists
+          if (selectedArtists.some(sa => sa.id === artist.id)) return;
+          
+          if (!frequencyMap[artist.id]) {
+            frequencyMap[artist.id] = { count: 0, artist };
+          }
+          frequencyMap[artist.id].count++;
+        });
+      });
+      
+      // Sort by frequency (highest overlap first)
+      const sorted = Object.values(frequencyMap)
+        .sort((a, b) => b.count - a.count)
+        .map(entry => entry.artist);
+        
+      setZeitgeistSuggestions(sorted.slice(0, 5));
+    } catch (err) {
+      console.error("Failed to update combination suggestions", err);
+    }
+  };
+
+  const handleSelectZeitgeistArtist = async (artist: any) => {
+    if (selectedZeitgeistArtists.find(a => a.id === artist.id)) return;
+    if (selectedZeitgeistArtists.length >= 5) {
+      alert("You can select maximum 5 artists.");
+      return;
+    }
+    
+    const updated = [...selectedZeitgeistArtists, artist];
+    setSelectedZeitgeistArtists(updated);
+    setZeitgeistSearchQuery('');
+    setZeitgeistSearchResults([]);
+
+    if (token) {
+      await updateZeitgeistSuggestions(token, updated);
+    }
+  };
+
+  const handleRemoveZeitgeistArtist = async (artistId: string) => {
+    const updated = selectedZeitgeistArtists.filter(a => a.id !== artistId);
+    setSelectedZeitgeistArtists(updated);
+    if (token) {
+      await updateZeitgeistSuggestions(token, updated);
+    }
+  };
+
+  const handleSelectBridgeFrom = (item: any) => {
+    setSelectedBridgeFrom(item);
+    setBridgeFromSearchQuery(item.name + (item.artist ? ` (by ${item.artist})` : ''));
+    setBridgeFromSearchResults([]);
+  };
+
+  const handleSelectBridgeTo = (item: any) => {
+    setSelectedBridgeTo(item);
+    setBridgeToSearchQuery(item.name + (item.artist ? ` (by ${item.artist})` : ''));
+    setBridgeToSearchResults([]);
+  };
+
+  const handleGenerateCultureDeck = async (
+    mode: 'DEFINITIVE_ARTIST' | 'SONIC_BRIDGE' | 'HORIZON_SCAN' | 'ZEITGEIST_RADAR',
+    contextInput: string
+  ) => {
+    if (!token) return;
+    setIsProcessing(true);
+    setAppState(AppState.GENERATING);
+    try {
+      const response = await GeminiService.generateCultureDeck(mode, contextInput);
+      
+      // Resolve Spotify URIs
+      const resolvedTracks = await Promise.all(
+        response.tracks.map(async (t) => {
+          const result = await SpotifyService.searchTrackByNameAndArtist(token, t.track_name, t.artist);
+          return { ...t, uri: result?.uri, image: result?.image };
+        })
+      );
+
+      setGeneratedCultureDeck({
+        id: crypto.randomUUID(),
+        mode,
+        inputContext: contextInput,
+        curator_briefing: response.curator_briefing,
+        playlist_name: response.playlist_name,
+        tracks: resolvedTracks
+      });
+      setPlaylistLink(null); // Reset playlist export link
+      setAppState(AppState.CULTURE_DECK);
+    } catch (err) {
+      console.error("Culture Deck generation failed:", err);
+      alert("Failed to generate Culture Deck. Please try again.");
+      setAppState(AppState.CULTURE_DECK);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleRerollCultureDeck = async () => {
+    if (!token || !generatedCultureDeck) return;
+    setIsProcessing(true);
+    setAppState(AppState.GENERATING);
+    try {
+      const response = await GeminiService.rerollCultureDeck(generatedCultureDeck);
+      
+      // Resolve Spotify URIs with optimization
+      const resolvedTracks = await Promise.all(
+        response.tracks.map(async (t) => {
+          // Find if it was in the old deck to reuse URI
+          const oldMatch = generatedCultureDeck.tracks.find(
+            ot => ot.track_name.toLowerCase() === t.track_name.toLowerCase() && 
+                  ot.artist.toLowerCase() === t.artist.toLowerCase()
+          );
+          if (oldMatch && oldMatch.uri) {
+            return { ...t, uri: oldMatch.uri, image: oldMatch.image };
+          }
+          const result = await SpotifyService.searchTrackByNameAndArtist(token, t.track_name, t.artist);
+          return { ...t, uri: result?.uri, image: result?.image };
+        })
+      );
+
+      setGeneratedCultureDeck({
+        ...generatedCultureDeck,
+        curator_briefing: response.curator_briefing,
+        playlist_name: response.playlist_name,
+        tracks: resolvedTracks
+      });
+      setPlaylistLink(null); // Reset playlist export link since playlist contents changed
+      setAppState(AppState.CULTURE_DECK);
+    } catch (err) {
+      console.error("Culture Deck reroll failed:", err);
+      alert("Failed to reroll Culture Deck. Please try again.");
+      setAppState(AppState.CULTURE_DECK);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleSaveCultureDeckToSpotify = async () => {
+    if (!token || !user || !generatedCultureDeck) return;
+    setIsProcessing(true);
+    try {
+      const uris = generatedCultureDeck.tracks.map(t => t.uri).filter((uri): uri is string => !!uri);
+      if (uris.length === 0) {
+        alert("No tracks found on Spotify to export.");
+        return;
+      }
+      const link = await SpotifyService.createPlaylist(
+        token,
+        user.id,
+        generatedCultureDeck.playlist_name,
+        `Curator's Briefing: ${generatedCultureDeck.curator_briefing.slice(0, 150)}... (Culture Deck via Vibeify AI)`,
+        uris
+      );
+      setPlaylistLink(link);
+    } catch (e) {
+      alert("Failed to save playlist to Spotify.");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleSaveCultureDeckToLibrary = async () => {
+    if (!generatedCultureDeck) return;
+    const newMix: any = {
+      id: generatedCultureDeck.id,
+      name: generatedCultureDeck.playlist_name,
+      description: generatedCultureDeck.curator_briefing,
+      uris: generatedCultureDeck.tracks.map(t => t.uri).filter((uri): uri is string => !!uri),
+      reasoning: "Culture Deck: " + generatedCultureDeck.mode.replace(/_/g, ' '),
+      createdAt: Date.now(),
+      isCultureDeck: true,
+      cultureDeckData: generatedCultureDeck
+    };
+    await DBService.savePlaylist(newMix);
+    setMyMixes([newMix, ...myMixes]);
+    alert("Culture Deck saved to your local library!");
+  };
+
   const reset = () => {
     setAppState(AppState.DASHBOARD);
     setGeneratedResult(null);
@@ -1229,6 +1601,7 @@ export default function App() {
     handleRescan,
     handleDeleteMix,
     setGeneratedResult,
+    setGeneratedCultureDeck,
     onLogout: handleLogout,
     isOpen: isMobileMenuOpen,
     onClose: () => setIsMobileMenuOpen(false),
@@ -1463,6 +1836,479 @@ export default function App() {
     );
   }
 
+  if (appState === AppState.CULTURE_DECK) {
+    return (
+      <MainLayout sidebarProps={sidebarProps} onOpenMobileMenu={() => setIsMobileMenuOpen(true)}>
+        <div className="p-6 md:p-12 pb-32 flex flex-col gap-8 h-full max-w-[1600px] mx-auto">
+          <header className="mb-4">
+            <h1 className="text-3xl md:text-5xl font-black mb-2 text-white tracking-tight flex items-center gap-3">
+              <Compass className="text-[#1DB954]" size={36} /> Culture Deck
+            </h1>
+            <p className="text-sm md:text-base text-gray-400">Discover genres, artists, and musical movements through expert-level kuration.</p>
+          </header>
+
+          <div className="flex flex-col lg:flex-row gap-8 items-stretch flex-1 min-h-0">
+            {/* LEFT CONTROL PANEL */}
+            <div className="w-full lg:w-[420px] xl:w-[450px] shrink-0 bg-[#181818] border border-white/5 p-6 rounded-3xl shadow-2xl flex flex-col gap-6 select-none justify-between h-fit">
+              <div>
+                <div className="flex bg-white/5 p-1 rounded-2xl border border-white/5 mb-6">
+                  {/* Mode Selector Buttons */}
+                  {[
+                    { mode: 'DEFINITIVE_ARTIST', label: 'Artist', icon: <User size={14} /> },
+                    { mode: 'SONIC_BRIDGE', label: 'Bridge', icon: <Waves size={14} /> },
+                    { mode: 'HORIZON_SCAN', label: 'Horizon', icon: <Compass size={14} /> },
+                    { mode: 'ZEITGEIST_RADAR', label: 'Zeitgeist', icon: <Zap size={14} /> }
+                  ].map(tab => (
+                    <button
+                      key={tab.mode}
+                      onClick={() => {
+                        setActiveDeckMode(tab.mode as any);
+                        setSelectedDefArtist(null);
+                        setSelectedZeitgeistArtists([]);
+                        setSelectedBridgeFrom(null);
+                        setSelectedBridgeTo(null);
+                        setDefArtistSearchQuery('');
+                        setZeitgeistSearchQuery('');
+                        setBridgeFromSearchQuery('');
+                        setBridgeToSearchQuery('');
+                        setDefArtistSuggestions([]);
+                        setZeitgeistSuggestions([]);
+                      }}
+                      className={`flex-1 py-2.5 rounded-xl flex items-center justify-center gap-1.5 text-xs font-black uppercase tracking-wider transition-all ${
+                        (activeDeckMode === tab.mode || (!activeDeckMode && tab.mode === 'DEFINITIVE_ARTIST'))
+                          ? 'bg-[#1DB954] text-black shadow-lg shadow-[#1DB954]/20'
+                          : 'text-gray-400 hover:text-white'
+                      }`}
+                    >
+                      {tab.icon}
+                      <span className="hidden sm:inline">{tab.label}</span>
+                    </button>
+                  ))}
+                </div>
+
+                {/* DYNAMIC FORM INNER CONTAINER */}
+                <div className="space-y-6">
+                  {(!activeDeckMode || activeDeckMode === 'DEFINITIVE_ARTIST') && (
+                    <div className="space-y-6 animate-in fade-in duration-300">
+                      <div className="relative">
+                        <label className="block text-xs text-gray-500 mb-2 uppercase font-black tracking-widest">Explore Artist</label>
+                        <div className="relative">
+                          <input 
+                            type="text"
+                            value={defArtistSearchQuery}
+                            onChange={(e) => setDefArtistSearchQuery(e.target.value)}
+                            placeholder="Type to search e.g. Radiohead..."
+                            className="w-full bg-black/40 text-white p-4 pl-10 rounded-xl border border-[#333] focus:border-purple-500/50 outline-none transition-all placeholder:text-gray-600 text-sm"
+                          />
+                          <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">
+                            <Search size={18} />
+                          </div>
+                        </div>
+
+                        {defArtistSearchResults.length > 0 && (
+                          <div className="absolute top-full left-0 right-0 mt-2 bg-[#1f1f1f] border border-white/10 rounded-2xl shadow-2xl overflow-hidden z-50 max-h-60 overflow-y-auto">
+                            <div className="p-2 space-y-1">
+                              {defArtistSearchResults.map((artist) => (
+                                <button
+                                  key={artist.id}
+                                  onClick={() => handleSelectDefArtist(artist)}
+                                  className="w-full flex items-center gap-4 p-3 rounded-xl hover:bg-white/5 transition-colors text-left group"
+                                >
+                                  {artist.image && <img src={artist.image} alt={artist.name} className="w-10 h-10 rounded-lg object-cover" />}
+                                  <span className="text-white font-bold group-hover:text-purple-400 transition-colors">{artist.name}</span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {selectedDefArtist && (
+                        <div className="bg-purple-950/20 border border-purple-500/20 p-4 rounded-2xl flex items-center gap-4 animate-in fade-in duration-300">
+                          {selectedDefArtist.image && <img src={selectedDefArtist.image} alt={selectedDefArtist.name} className="w-14 h-14 rounded-xl object-cover shadow-lg" />}
+                          <div>
+                            <h4 className="font-bold text-white text-lg">{selectedDefArtist.name}</h4>
+                            <span className="text-[10px] uppercase font-bold text-purple-400 tracking-widest">Selected Anchor</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {selectedDefArtist && defArtistSuggestions.length > 0 && (
+                        <div className="p-4 bg-white/5 rounded-2xl border border-white/5 animate-in fade-in">
+                          <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3 flex items-center gap-1.5">
+                            <Compass size={12} className="text-purple-400" /> Broaden your Horizon: Discover Similar
+                          </h4>
+                          <div className="flex flex-wrap gap-2">
+                            {defArtistSuggestions.map((artist) => (
+                              <button
+                                key={artist.id}
+                                onClick={() => handleSelectDefArtist({ id: artist.id, name: artist.name, image: artist.images?.[2]?.url || artist.images?.[0]?.url })}
+                                className="px-3 py-1.5 rounded-full bg-purple-900/10 border border-purple-900/20 text-purple-300 text-xs font-bold hover:bg-purple-900/30 hover:border-purple-500/50 transition-all"
+                              >
+                                {artist.name}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      <Button 
+                        onClick={() => handleGenerateCultureDeck('DEFINITIVE_ARTIST', selectedDefArtist ? selectedDefArtist.name : defArtistSearchQuery)}
+                        disabled={(!selectedDefArtist && !defArtistSearchQuery.trim()) || isProcessing}
+                        className="w-full bg-purple-600 text-white hover:bg-purple-500 py-4 text-base font-bold shadow-lg"
+                      >
+                        Generate Definitive Deck
+                      </Button>
+                    </div>
+                  )}
+
+                  {activeDeckMode === 'SONIC_BRIDGE' && (
+                    <div className="space-y-6 animate-in fade-in duration-300">
+                      <div className="grid grid-cols-1 gap-6">
+                        <div className="relative">
+                          <label className="block text-xs text-gray-500 mb-2 uppercase font-black tracking-widest">From (Genre or Artist)</label>
+                          <div className="relative">
+                            <input 
+                              type="text"
+                              value={bridgeFromSearchQuery}
+                              onChange={(e) => setBridgeFromSearchQuery(e.target.value)}
+                              placeholder="Search artist or genre..."
+                              className="w-full bg-black/40 text-white p-4 pl-10 rounded-xl border border-[#333] focus:border-blue-500/50 outline-none transition-all placeholder:text-gray-600 text-sm"
+                            />
+                            <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">
+                              <Search size={18} />
+                            </div>
+                          </div>
+
+                          {bridgeFromSearchResults.length > 0 && (
+                            <div className="absolute top-full left-0 right-0 mt-2 bg-[#1f1f1f] border border-white/10 rounded-2xl shadow-2xl overflow-hidden z-50 max-h-60 overflow-y-auto">
+                              <div className="p-2 space-y-1">
+                                {bridgeFromSearchResults.map((item) => (
+                                  <button
+                                    key={item.id}
+                                    onClick={() => handleSelectBridgeFrom(item)}
+                                    className="w-full flex items-center gap-3 p-2.5 rounded-xl hover:bg-white/5 transition-colors text-left text-sm"
+                                  >
+                                    {item.image && <img src={item.image} alt={item.name} className="w-8 h-8 rounded-lg object-cover" />}
+                                    <div>
+                                      <span className="text-white font-bold block">{item.name}</span>
+                                      <span className="text-[10px] text-gray-500 font-mono uppercase">{item.subtitle}</span>
+                                    </div>
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="relative">
+                          <label className="block text-xs text-gray-500 mb-2 uppercase font-black tracking-widest">To (Target Genre)</label>
+                          <div className="relative">
+                            <input 
+                              type="text"
+                              value={bridgeToSearchQuery}
+                              onChange={(e) => setBridgeToSearchQuery(e.target.value)}
+                              placeholder="Search artist or genre..."
+                              className="w-full bg-black/40 text-white p-4 pl-10 rounded-xl border border-[#333] focus:border-blue-500/50 outline-none transition-all placeholder:text-gray-600 text-sm"
+                            />
+                            <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">
+                              <Search size={18} />
+                            </div>
+                          </div>
+
+                          {bridgeToSearchResults.length > 0 && (
+                            <div className="absolute top-full left-0 right-0 mt-2 bg-[#1f1f1f] border border-white/10 rounded-2xl shadow-2xl overflow-hidden z-50 max-h-60 overflow-y-auto">
+                              <div className="p-2 space-y-1">
+                                {bridgeToSearchResults.map((item) => (
+                                  <button
+                                    key={item.id}
+                                    onClick={() => handleSelectBridgeTo(item)}
+                                    className="w-full flex items-center gap-3 p-2.5 rounded-xl hover:bg-white/5 transition-colors text-left text-sm"
+                                  >
+                                    {item.image && <img src={item.image} alt={item.name} className="w-8 h-8 rounded-lg object-cover" />}
+                                    <div>
+                                      <span className="text-white font-bold block">{item.name}</span>
+                                      <span className="text-[10px] text-gray-500 font-mono uppercase">{item.subtitle}</span>
+                                    </div>
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      
+                      <Button 
+                        onClick={() => handleGenerateCultureDeck('SONIC_BRIDGE', `${selectedBridgeFrom ? selectedBridgeFrom.name : bridgeFromSearchQuery} to ${selectedBridgeTo ? selectedBridgeTo.name : bridgeToSearchQuery}`)}
+                        disabled={(!selectedBridgeFrom && !bridgeFromSearchQuery.trim()) || (!selectedBridgeTo && !bridgeToSearchQuery.trim()) || isProcessing}
+                        className="w-full bg-blue-600 text-white hover:bg-blue-500 py-4 text-base font-bold shadow-lg"
+                      >
+                        Build Sonic Bridge
+                      </Button>
+                    </div>
+                  )}
+
+                  {activeDeckMode === 'HORIZON_SCAN' && (
+                    <div className="space-y-6 animate-in fade-in duration-300">
+                      <div>
+                        <label className="block text-xs text-gray-500 mb-2 uppercase font-black tracking-widest">Subculture / City / Decade</label>
+                        <input 
+                          type="text"
+                          value={horizonInput}
+                          onChange={(e) => setHorizonInput(e.target.value)}
+                          placeholder="e.g. UK Grime 2015, Detroit Techno 90s..."
+                          className="w-full bg-black/40 text-white p-4 rounded-xl border border-[#333] focus:border-emerald-500/50 outline-none transition-all placeholder:text-gray-600 text-sm"
+                        />
+                      </div>
+                      <Button 
+                        onClick={() => handleGenerateCultureDeck('HORIZON_SCAN', horizonInput)}
+                        disabled={!horizonInput.trim() || isProcessing}
+                        className="w-full bg-emerald-600 text-white hover:bg-emerald-500 py-4 text-base font-bold shadow-lg"
+                      >
+                        Scan Horizon
+                      </Button>
+                    </div>
+                  )}
+
+                  {activeDeckMode === 'ZEITGEIST_RADAR' && (
+                    <div className="space-y-6 animate-in fade-in duration-300">
+                      <div className="space-y-4 relative">
+                        <label className="block text-xs text-gray-500 uppercase font-black tracking-widest">Selected Artists ({selectedZeitgeistArtists.length}/5)</label>
+                        
+                        {selectedZeitgeistArtists.length > 0 && (
+                          <div className="flex flex-wrap gap-2">
+                            {selectedZeitgeistArtists.map((artist) => (
+                              <div 
+                                key={artist.id}
+                                className="bg-white/10 backdrop-blur-md border border-white/10 pl-2 pr-3 py-1.5 rounded-full flex items-center gap-2"
+                              >
+                                {artist.image && <img src={artist.image} alt={artist.name} className="w-6 h-6 rounded-full object-cover" />}
+                                <span className="text-xs font-bold text-white">{artist.name}</span>
+                                <button 
+                                  onClick={() => handleRemoveZeitgeistArtist(artist.id)}
+                                  className="p-0.5 hover:bg-white/20 rounded-full text-gray-400 hover:text-white"
+                                >
+                                  <X size={12} />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {selectedZeitgeistArtists.length < 5 && (
+                          <div className="relative">
+                            <input 
+                              type="text"
+                              value={zeitgeistSearchQuery}
+                              onChange={(e) => setZeitgeistSearchQuery(e.target.value)}
+                              placeholder="Search artist to add..."
+                              className="w-full bg-black/40 text-white p-4 pl-10 rounded-xl border border-[#333] focus:border-[#1DB954] outline-none transition-all placeholder:text-gray-600 text-sm"
+                            />
+                            <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">
+                              <Search size={18} />
+                            </div>
+                          </div>
+                        )}
+
+                        {zeitgeistSearchResults.length > 0 && (
+                          <div className="absolute top-full left-0 right-0 mt-2 bg-[#1f1f1f] border border-white/10 rounded-2xl shadow-2xl overflow-hidden z-50">
+                            <div className="p-2 space-y-1">
+                              {zeitgeistSearchResults.map((artist) => (
+                                <button
+                                  key={artist.id}
+                                  onClick={() => handleSelectZeitgeistArtist(artist)}
+                                  className="w-full flex items-center gap-4 p-3 rounded-xl hover:bg-white/5 transition-colors text-left group"
+                                >
+                                  {artist.image && <img src={artist.image} alt={artist.name} className="w-10 h-10 rounded-lg object-cover" />}
+                                  <span className="text-white font-bold group-hover:text-orange-400 transition-colors">{artist.name}</span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Combined Suggestions */}
+                        {selectedZeitgeistArtists.length > 0 && zeitgeistSuggestions.length > 0 && (
+                          <div className="p-4 bg-white/5 rounded-2xl border border-white/5 animate-in fade-in">
+                            <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3 flex items-center gap-1.5">
+                              <Sparkles size={12} className="text-orange-400 animate-pulse" /> Dynamic Overlap Suggestions
+                            </h4>
+                            <div className="flex flex-wrap gap-2">
+                              {zeitgeistSuggestions.map((artist) => (
+                                <button
+                                  key={artist.id}
+                                  onClick={() => handleSelectZeitgeistArtist({ id: artist.id, name: artist.name, image: artist.images?.[2]?.url || artist.images?.[0]?.url })}
+                                  className="px-3 py-1.5 rounded-full bg-orange-950/20 border border-orange-500/20 text-orange-300 text-xs font-bold hover:bg-orange-950/30 hover:border-orange-500/50 transition-all flex items-center gap-1"
+                                >
+                                  + {artist.name}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      <Button 
+                        onClick={() => handleGenerateCultureDeck('ZEITGEIST_RADAR', selectedZeitgeistArtists.map(a => a.name).join(', '))}
+                        disabled={selectedZeitgeistArtists.length === 0 || isProcessing}
+                        className="w-full bg-orange-600 text-black hover:bg-orange-500 py-4 text-base font-bold shadow-lg"
+                      >
+                        Scan Zeitgeist Radar
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* CURATED PRESETS */}
+              <div className="mt-8 border-t border-white/5 pt-6">
+                <h4 className="text-xs font-black text-gray-500 uppercase tracking-widest mb-3 flex items-center gap-1.5">
+                  <Sparkles size={12} className="text-[#1DB954]" /> Curated Presets
+                </h4>
+                <div className="grid grid-cols-3 gap-2">
+                  {CULTURE_DECK_PRESETS[activeDeckMode || 'DEFINITIVE_ARTIST'].map((preset) => (
+                    <button
+                      key={preset.name}
+                      onClick={() => handleGenerateCultureDeck(activeDeckMode || 'DEFINITIVE_ARTIST', preset.query)}
+                      className="bg-white/5 border border-white/5 hover:border-[#1DB954]/50 hover:bg-white/10 rounded-xl p-2.5 text-left transition-all h-24 flex flex-col justify-between"
+                    >
+                      <span className="text-lg">{preset.image}</span>
+                      <span className="font-bold text-white text-[10px] line-clamp-2 leading-tight">{preset.name}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* RIGHT PLAYLIST CANVAS */}
+            <div className="flex-1 min-w-0 flex flex-col justify-stretch">
+              {!generatedCultureDeck ? (
+                /* Spin Vinyl Placeholder */
+                <div className="flex flex-col items-center justify-center h-full text-center p-8 bg-white/5 backdrop-blur-md rounded-3xl border border-white/5 shadow-2xl relative overflow-hidden min-h-[500px] animate-in fade-in duration-700">
+                  <div className="absolute inset-0 bg-[#1DB954]/5 blur-3xl rounded-full opacity-50 pointer-events-none" />
+                  <div className="relative group mb-8">
+                    <div className="absolute inset-0 bg-[#1DB954]/20 blur-3xl rounded-full opacity-50 group-hover:opacity-100 transition-opacity animate-pulse" />
+                    <div className="relative w-48 h-48 bg-black rounded-full shadow-2xl border-4 border-white/10 flex items-center justify-center animate-spin" style={{ animationDuration: '10s' }}>
+                      <div className="absolute inset-2 border border-white/5 rounded-full" />
+                      <div className="absolute inset-4 border border-white/5 rounded-full" />
+                      <div className="absolute inset-6 border border-white/5 rounded-full" />
+                      <div className="absolute inset-8 border border-white/5 rounded-full" />
+                      <div className="absolute inset-10 border border-white/5 rounded-full" />
+                      <div className="w-12 h-12 bg-[#1DB954]/20 rounded-full flex items-center justify-center border-4 border-black">
+                        <Compass size={24} className="text-[#1DB954]" />
+                      </div>
+                    </div>
+                  </div>
+                  <h3 className="text-2xl font-black text-white mb-2 uppercase tracking-tight">Curator's Canvas</h3>
+                  <p className="text-gray-400 text-sm max-w-sm leading-relaxed">
+                    Select a mode on the left panel, add your anchors, and generate a customized Culture Deck to begin your discovery journey.
+                  </p>
+                </div>
+              ) : (
+                /* Spotify Style Playlist view */
+                <div className="bg-[#181818] border border-white/5 rounded-3xl shadow-2xl p-6 md:p-8 flex flex-col flex-1 h-full min-h-[500px] animate-in slide-in-from-right duration-500 overflow-y-auto custom-scrollbar">
+                  {/* Header info */}
+                  <div className="flex flex-col md:flex-row gap-6 md:gap-8 mb-8">
+                    <div className="w-36 h-36 md:w-44 md:h-44 shrink-0 shadow-2xl">
+                      <CultureDeckCover tracks={generatedCultureDeck.tracks} />
+                    </div>
+                    <div className="flex flex-col justify-end flex-1 min-w-0">
+                      <span className="text-[10px] md:text-xs font-bold uppercase tracking-widest text-[#1DB954] mb-2 flex items-center gap-1.5">
+                        <Sparkles size={12} /> Culture Deck • {generatedCultureDeck.mode.replace(/_/g, ' ')}
+                      </span>
+                      <h2 className="text-3xl md:text-4xl font-black mb-3 text-white leading-tight">
+                        {generatedCultureDeck.playlist_name}
+                      </h2>
+                      <p className="text-xs text-gray-500 font-mono mb-3">Context: "{generatedCultureDeck.inputContext}"</p>
+                      
+                      {/* Curator briefing description */}
+                      <p className="text-xs md:text-sm text-gray-300 italic leading-relaxed bg-white/5 p-4 rounded-xl border border-white/5">
+                        {generatedCultureDeck.curator_briefing}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Actions Row */}
+                  <div className="flex flex-wrap gap-4 mb-6 border-b border-white/5 pb-6">
+                    {!playlistLink ? (
+                      <Button onClick={handleSaveCultureDeckToSpotify} disabled={isProcessing} className="bg-[#1DB954] text-black">
+                        {isProcessing ? <Loader2 className="animate-spin" /> : 'Export to Spotify'}
+                      </Button>
+                    ) : (
+                      <a href={playlistLink} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 bg-white text-black px-6 py-3 rounded-full font-bold hover:bg-gray-200 w-fit">
+                        <CheckCircle size={20} className="text-[#1DB954]" /> Open in Spotify
+                      </a>
+                    )}
+
+                    <Button variant="outline" onClick={handleSaveCultureDeckToLibrary}>
+                      Save to Library
+                    </Button>
+
+                    <Button 
+                      variant="outline" 
+                      onClick={handleRerollCultureDeck} 
+                      disabled={isProcessing}
+                      className="border-purple-500/50 hover:bg-purple-950/20 text-purple-300 hover:text-white"
+                    >
+                      <RefreshCw size={16} className={isProcessing ? 'animate-spin' : ''} /> Reroll Deck
+                    </Button>
+                  </div>
+
+                  {/* Tracks list table */}
+                  <div className="flex-1">
+                    <div className="grid grid-cols-[30px_1fr] md:grid-cols-[40px_2fr_1fr] border-b border-white/5 pb-2 text-[10px] font-black text-gray-500 uppercase tracking-widest mb-4">
+                      <span>#</span>
+                      <span>Title</span>
+                      <span className="hidden md:inline">Category</span>
+                    </div>
+
+                    <div className="space-y-1">
+                      {generatedCultureDeck.tracks.map((track, idx) => {
+                        let badgeClass = '';
+                        if (track.category === 'Anthem') badgeClass = 'bg-red-950/40 text-red-400 border-red-900/50';
+                        else if (track.category === 'Fan Favorite') badgeClass = 'bg-purple-950/40 text-purple-400 border-purple-900/50';
+                        else if (track.category === 'Deep Cut') badgeClass = 'bg-indigo-950/40 text-indigo-400 border-indigo-900/50';
+                        else if (track.category === 'Zeitgeist') badgeClass = 'bg-orange-950/40 text-orange-400 border-orange-900/50';
+
+                        return (
+                          <div key={idx} className="grid grid-cols-[30px_1fr] md:grid-cols-[40px_2fr_1fr] p-3 rounded-xl hover:bg-white/5 transition-all items-start group">
+                            <span className="text-gray-500 font-mono text-sm mt-1.5">{idx + 1}</span>
+                            <div className="min-w-0 pr-4">
+                              <div className="flex flex-wrap items-center gap-2 mb-0.5">
+                                <span className="text-white font-bold truncate text-sm">{track.track_name}</span>
+                                <span className={`text-[8px] font-black uppercase tracking-widest px-1.5 py-0.2 rounded border md:hidden ${badgeClass}`}>
+                                  {track.category}
+                                </span>
+                                {!track.uri && (
+                                  <span className="bg-gray-850 text-gray-500 border border-gray-700/50 text-[8px] font-bold px-1.5 py-0.2 rounded ml-1">
+                                    Not Found
+                                  </span>
+                                )}
+                              </div>
+                              <span className="text-gray-400 text-xs font-medium block mb-2">{track.artist}</span>
+                              <p className="text-[11px] text-gray-500 italic bg-black/10 p-2 rounded-lg border border-white/5 leading-normal max-w-xl">
+                                {track.why_it_matters}
+                              </p>
+                            </div>
+                            <span className="hidden md:flex items-center mt-1">
+                              <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded border ${badgeClass}`}>
+                                {track.category}
+                              </span>
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </MainLayout>
+    );
+  }
+
   if (appState === AppState.SAVED_VIBES) {
     return (
       <MainLayout sidebarProps={sidebarProps} onOpenMobileMenu={() => setIsMobileMenuOpen(true)}>
@@ -1657,6 +2503,67 @@ export default function App() {
               >
                 🧠 Focus
               </button>
+            </div>
+          </div>
+        </section>
+
+        {/* Workout & Sports Mixes */}
+        <section className="mb-12">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="bg-orange-500/20 p-2 rounded-lg text-orange-400">
+              <Zap size={20} />
+            </div>
+            <h2 className="text-2xl font-bold text-white">Workout & Action</h2>
+            <span className="text-[10px] bg-orange-900/40 text-orange-400 px-2 py-1 rounded border border-orange-900/50 uppercase font-bold tracking-widest ml-2">Active</span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {/* Gym / Heavy Lifting */}
+            <div
+              onClick={() => handleGenerate('prompt', 'High energy, aggressive heavy lifting gym session, metal or hard rap')}
+              className="relative h-48 rounded-3xl overflow-hidden cursor-pointer group transition-all duration-500 hover:scale-[1.02] hover:shadow-2xl hover:shadow-orange-500/20 border border-white/5 bg-gradient-to-br from-[#7c2d12] via-black to-[#450a0a]"
+            >
+              <div className="absolute inset-x-0 bottom-0 p-6">
+                <div className="relative z-10">
+                  <div className="flex items-center gap-2 mb-2 text-orange-400 drop-shadow-md">
+                    <span className="text-[20px]">🏋️</span>
+                  </div>
+                  <h3 className="text-2xl font-black text-white mb-1 uppercase tracking-tighter drop-shadow-md">Gym Intensity</h3>
+                  <p className="text-sm text-white/70 drop-shadow-md">Heavy lifting hits for PRs</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Running */}
+            <div
+              onClick={() => handleGenerate('prompt', '160 BPM steady paced running music, upbeat pop and electronic')}
+              className="relative h-48 rounded-3xl overflow-hidden cursor-pointer group transition-all duration-500 hover:scale-[1.02] hover:shadow-2xl hover:shadow-blue-500/20 border border-white/5 bg-gradient-to-br from-[#1e3a8a] via-black to-[#064e3b]"
+            >
+              <div className="absolute inset-x-0 bottom-0 p-6">
+                <div className="relative z-10">
+                  <div className="flex items-center gap-2 mb-2 text-blue-400 drop-shadow-md">
+                    <span className="text-[20px]">🏃</span>
+                  </div>
+                  <h3 className="text-2xl font-black text-white mb-1 uppercase tracking-tighter drop-shadow-md">Runner's High</h3>
+                  <p className="text-sm text-white/70 drop-shadow-md">Steady paced, upbeat fuel</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Sports / Team */}
+            <div
+              onClick={() => handleGenerate('prompt', 'Upbeat stadium sports motivation hype music, hiphop and rock')}
+              className="relative h-48 rounded-3xl overflow-hidden cursor-pointer group transition-all duration-500 hover:scale-[1.02] hover:shadow-2xl hover:shadow-emerald-500/20 border border-white/5 bg-gradient-to-br from-[#064e3b] via-black to-[#831843]"
+            >
+              <div className="absolute inset-x-0 bottom-0 p-6">
+                <div className="relative z-10">
+                  <div className="flex items-center gap-2 mb-2 text-emerald-400 drop-shadow-md">
+                    <span className="text-[20px]">🏆</span>
+                  </div>
+                  <h3 className="text-2xl font-black text-white mb-1 uppercase tracking-tighter drop-shadow-md">Sports Hype</h3>
+                  <p className="text-sm text-white/70 drop-shadow-md">Stadium motivation & agility</p>
+                </div>
+              </div>
             </div>
           </div>
         </section>

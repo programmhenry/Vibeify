@@ -364,3 +364,67 @@ export const fetchArtistsBatch = async (token: string, ids: string[]): Promise<a
   const data = await res.json();
   return data.artists || [];
 };
+
+export const fetchRelatedArtists = async (token: string, artistId: string): Promise<any[]> => {
+  const res = await fetch(`https://api.spotify.com/v1/artists/${artistId}/related-artists`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.artists || [];
+};
+
+/**
+ * Searches for a single track on Spotify by name and artist.
+ * Returns the track URI if found, otherwise null.
+ */
+export const searchTrackByNameAndArtist = async (
+  token: string,
+  trackName: string,
+  artistName: string
+): Promise<{ uri: string; image?: string } | null> => {
+  try {
+    // Attempt structured query
+    const cleanTrack = trackName.replace(/["']/g, '');
+    const cleanArtist = artistName.replace(/["']/g, '');
+    const query = `track:"${cleanTrack}" artist:"${cleanArtist}"`;
+    
+    let res = await fetch(`https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&limit=1`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    
+    if (!res.ok) {
+      throw new Error("Structured search failed");
+    }
+    
+    let data = await res.json();
+    let track = data.tracks?.items?.[0];
+    
+    if (track) {
+      return { 
+        uri: track.uri, 
+        image: track.album?.images?.[0]?.url || track.album?.images?.[1]?.url || undefined 
+      };
+    }
+    
+    // Fallback: looser query
+    const fallbackQuery = `${cleanTrack} ${cleanArtist}`;
+    res = await fetch(`https://api.spotify.com/v1/search?q=${encodeURIComponent(fallbackQuery)}&type=track&limit=1`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    
+    if (res.ok) {
+      data = await res.json();
+      track = data.tracks?.items?.[0];
+      return track ? { 
+        uri: track.uri, 
+        image: track.album?.images?.[0]?.url || track.album?.images?.[1]?.url || undefined 
+      } : null;
+    }
+    
+    return null;
+  } catch (err) {
+    console.error("Spotify track search failed:", err);
+    return null;
+  }
+};
