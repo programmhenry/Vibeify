@@ -705,6 +705,7 @@ export default function App() {
   const [token, setToken] = useState<string | null>(null);
   const [clientId, setClientId] = useState<string>('6af5049db3e24dd9a794fabd6721e7df');
   const [redirectUri, setRedirectUri] = useState<string>('');
+  const [geminiApiKey, setGeminiApiKey] = useState<string>('');
   const [user, setUser] = useState<SpotifyUser | null>(null);
   const [library, setLibrary] = useState<SpotifyTrack[]>([]);
   const [appState, setAppState] = useState<AppState>(AppState.LOGIN);
@@ -949,9 +950,12 @@ export default function App() {
   const [myMixes, setMyMixes] = useState<any[]>([]);
 
   useEffect(() => {
-    // 1. Load Client ID from localStorage if exists
+    // 1. Load Client ID and Gemini Key from localStorage if they exist
     const storedId = localStorage.getItem('spotify_client_id');
     if (storedId) setClientId(storedId);
+
+    const storedGeminiKey = localStorage.getItem('gemini_api_key');
+    if (storedGeminiKey) setGeminiApiKey(storedGeminiKey);
 
     // 2. Set default Redirect URI on mount
     if (typeof window !== 'undefined') {
@@ -1042,6 +1046,13 @@ export default function App() {
   const handleLogin = async () => {
     if (!clientId) return alert("Please enter a Client ID");
     if (!redirectUri) return alert("Please confirm the Redirect URI");
+
+    // Save Gemini Key if provided
+    if (geminiApiKey) {
+      localStorage.setItem('gemini_api_key', geminiApiKey);
+    } else if (!import.meta.env.VITE_GEMINI_API_KEY) {
+      return alert("Please enter a Gemini API Key or configure VITE_GEMINI_API_KEY in environment variables.");
+    }
 
     localStorage.setItem('spotify_client_id', clientId);
     const authUrl = await SpotifyService.getAuthUrl(clientId, redirectUri);
@@ -1638,6 +1649,32 @@ export default function App() {
               />
             </div>
 
+            {/* Gemini API Key Input */}
+            <div>
+              <div className="flex justify-between items-center mb-2">
+                <label className="block text-xs text-gray-400 uppercase font-bold tracking-widest">
+                  Gemini API Key
+                </label>
+                {import.meta.env.VITE_GEMINI_API_KEY && (
+                  <span className="text-[10px] bg-green-900/30 text-green-400 px-2 py-0.5 rounded border border-green-900/50">
+                    System Default Active
+                  </span>
+                )}
+              </div>
+              <input
+                type="password"
+                value={geminiApiKey}
+                onChange={(e) => setGeminiApiKey(e.target.value)}
+                placeholder={import.meta.env.VITE_GEMINI_API_KEY ? "••••••••••••••••••••••••" : "Paste your Gemini API Key (AIzaSy...)"}
+                className="w-full bg-[#282828] text-white p-3 rounded-md border border-transparent focus:border-purple-500 focus:ring-1 focus:ring-purple-500 outline-none transition-all font-mono"
+              />
+              {!import.meta.env.VITE_GEMINI_API_KEY && (
+                <p className="mt-1 text-[10px] text-gray-500">
+                  Required because VITE_GEMINI_API_KEY is not configured in Vercel environment variables.
+                </p>
+              )}
+            </div>
+
             {/* Redirect URI Input */}
             <div>
               <div className="flex justify-between items-center mb-2">
@@ -1684,7 +1721,7 @@ export default function App() {
             </div>
           </div>
 
-          <Button onClick={handleLogin} disabled={!clientId || !redirectUri} className="w-full text-lg py-4">
+          <Button onClick={handleLogin} disabled={!clientId || !redirectUri || (!import.meta.env.VITE_GEMINI_API_KEY && !geminiApiKey)} className="w-full text-lg py-4">
             Connect Spotify Library
           </Button>
         </div>

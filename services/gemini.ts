@@ -1,9 +1,20 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { SpotifyTrack, CultureDeck, CultureDeckTrack } from '../types';
 
-const ai = new GoogleGenAI({
-  apiKey: import.meta.env.VITE_GEMINI_API_KEY
-});
+let cachedAI: GoogleGenAI | null = null;
+let cachedKey: string = '';
+
+const getAI = (): GoogleGenAI => {
+  const key = import.meta.env.VITE_GEMINI_API_KEY || localStorage.getItem('gemini_api_key') || '';
+  if (!key) {
+    throw new Error("Gemini API Key is not configured. Please set VITE_GEMINI_API_KEY or input it on the login screen.");
+  }
+  if (!cachedAI || cachedKey !== key) {
+    cachedAI = new GoogleGenAI({ apiKey: key });
+    cachedKey = key;
+  }
+  return cachedAI;
+};
 
 interface PlaylistResponse {
   playlistName: string;
@@ -54,7 +65,7 @@ export const generatePlaylistFromLibrary = async (
     ${mode === 'deep_cuts' ? `Strictly prioritize older songs added before ${deepCutDateThreshold || '2023-01-01'}.` : ""}
   `;
 
-  const response = await ai.models.generateContent({
+  const response = await getAI().models.generateContent({
     model: 'gemini-3-flash-preview',
     contents: userPrompt,
     config: {
@@ -123,7 +134,7 @@ export const refinePlaylist = async (
     Refine the playlist based on the feedback: "${refinementPrompt}".
   `;
 
-  const response = await ai.models.generateContent({
+  const response = await getAI().models.generateContent({
     model: 'gemini-3-flash-preview',
     contents: userPrompt,
     config: {
@@ -215,7 +226,7 @@ export const analyzeTasteDNA = async (
     required: ["title", "description", "prompt", "emoji"]
   };
 
-  const response = await ai.models.generateContent({
+  const response = await getAI().models.generateContent({
     model: 'gemini-3-flash-preview',
     contents: userPrompt,
     config: {
@@ -275,7 +286,7 @@ export const generateMusicalBio = async (stats: {
     Audio Profile (Averages): ${JSON.stringify(stats.audioFeatures)}
   `;
 
-  const response = await ai.models.generateContent({
+  const response = await getAI().models.generateContent({
     model: 'gemini-3-flash-preview',
     contents: userPrompt,
     config: {
@@ -337,7 +348,7 @@ export const generateCultureDeck = async (
     Generate the playlist. Ensure all tracks are real, and provide the curator_briefing explaining the historical/cultural context of this selection in 3-4 elegant sentences.
   `;
 
-  const response = await ai.models.generateContent({
+  const response = await getAI().models.generateContent({
     model: 'gemini-3-flash-preview',
     contents: userPrompt,
     config: {
@@ -396,7 +407,7 @@ export const rerollCultureDeck = async (
     Perform a Reroll. Retain the "Anthem" tracks, but supply new replacements for the other categories. Ensure all songs are real.
   `;
 
-  const response = await ai.models.generateContent({
+  const response = await getAI().models.generateContent({
     model: 'gemini-3-flash-preview',
     contents: userPrompt,
     config: {
