@@ -130,9 +130,6 @@ const Sidebar = ({
               <button
                 onClick={() => {
                   setAppState(AppState.PLAYLIST_STUDIO);
-                  if (token && userPlaylists.length === 0) {
-                    loadUserPlaylists(token);
-                  }
                   onClose();
                 }}
                 className={`flex items-center gap-3 w-full text-left transition-colors ${appState === AppState.PLAYLIST_STUDIO ? 'text-[#1DB954] font-bold' : 'text-gray-300 hover:text-white'}`}
@@ -1029,6 +1026,12 @@ export default function App() {
       }
     }
   }, []);
+
+  useEffect(() => {
+    if (appState === AppState.PLAYLIST_STUDIO && token && userPlaylists.length === 0) {
+      loadUserPlaylists(token);
+    }
+  }, [appState, token, userPlaylists.length]);
 
   const handleCodeExchange = async (code: string) => {
     setAppState(AppState.SCANNING); // Show loading state
