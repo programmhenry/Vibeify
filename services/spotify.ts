@@ -4,7 +4,9 @@ const SCOPES = [
   'user-library-read',
   'user-top-read',
   'playlist-modify-public',
-  'playlist-modify-private'
+  'playlist-modify-private',
+  'playlist-read-private',
+  'playlist-read-collaborative'
 ].join(' ');
 
 export const getAuthUrl = async (clientId: string, redirectUri: string) => {
