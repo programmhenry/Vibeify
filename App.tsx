@@ -33,7 +33,8 @@ import {
   Share2,
   BarChart3,
   Dna,
-  Sliders
+  Sliders,
+  Folder
 } from 'lucide-react';
 import * as DBService from './services/db';
 import {
@@ -135,6 +136,18 @@ const Sidebar = ({
                 className={`flex items-center gap-3 w-full text-left transition-colors ${appState === AppState.PLAYLIST_STUDIO ? 'text-[#1DB954] font-bold' : 'text-gray-300 hover:text-white'}`}
               >
                 <Sliders size={18} /> Playlist Studio
+              </button>
+              <button
+                onClick={() => {
+                  setAppState(AppState.PLAYLIST_ORGANIZER);
+                  if (token && userPlaylists.length === 0) {
+                    loadUserPlaylists(token);
+                  }
+                  onClose();
+                }}
+                className={`flex items-center gap-3 w-full text-left transition-colors ${appState === AppState.PLAYLIST_ORGANIZER ? 'text-[#1DB954] font-bold' : 'text-gray-300 hover:text-white'}`}
+              >
+                <Folder size={18} /> Playlist Organizer
               </button>
               <button
                 onClick={() => { setAppState(AppState.SAVED_VIBES); onClose(); }}
@@ -755,6 +768,14 @@ export default function App() {
   const [remixResultTracks, setRemixResultTracks] = useState<SpotifyTrack[] | null>(null);
   const [customPlaylistUrl, setCustomPlaylistUrl] = useState<string>('');
 
+  // Playlist Organizer States
+  const [folders, setFolders] = useState<Record<string, string[]>>({});
+  const [archivedPlaylistIds, setArchivedPlaylistIds] = useState<string[]>([]);
+  const [selectedPlaylistIds, setSelectedPlaylistIds] = useState<string[]>([]);
+  const [activeOrganizerFolder, setActiveOrganizerFolder] = useState<string>('all');
+  const [organizerSearch, setOrganizerSearch] = useState<string>('');
+  const [organizerSort, setOrganizerSort] = useState<string>('name-asc');
+
   // Culture Deck States
   const [generatedCultureDeck, setGeneratedCultureDeck] = useState<CultureDeck | null>(null);
   const [activeDeckMode, setActiveDeckMode] = useState<'DEFINITIVE_ARTIST' | 'SONIC_BRIDGE' | 'HORIZON_SCAN' | 'ZEITGEIST_RADAR' | null>(null);
@@ -977,6 +998,16 @@ export default function App() {
 
     const storedGeminiKey = localStorage.getItem('gemini_api_key');
     if (storedGeminiKey) setGeminiApiKey(storedGeminiKey);
+
+    // Load Virtual Folders and Archived Playlist IDs
+    const storedFolders = localStorage.getItem('vibeify_folders');
+    if (storedFolders) {
+      try { setFolders(JSON.parse(storedFolders)); } catch (e) {}
+    }
+    const storedArchived = localStorage.getItem('vibeify_archived_playlists');
+    if (storedArchived) {
+      try { setArchivedPlaylistIds(JSON.parse(storedArchived)); } catch (e) {}
+    }
 
     // 2. Set default Redirect URI on mount
     if (typeof window !== 'undefined') {
@@ -1739,6 +1770,108 @@ export default function App() {
       alert("Failed to load playlist. Please verify the URL/ID and ensure it is public or collaborative.");
     } finally {
       setPlaylistStudioLoading(false);
+    }
+  };
+
+  const handleCreateFolder = (folderName: string) => {
+    const trimmed = folderName.trim();
+    if (!trimmed) return;
+    if (folders[trimmed]) {
+      alert("A folder with this name already exists.");
+      return;
+    }
+    const updated = { ...folders, [trimmed]: [] };
+    setFolders(updated);
+    localStorage.setItem('vibeify_folders', JSON.stringify(updated));
+  };
+
+  const handleDeleteFolder = (folderName: string) => {
+    if (!confirm(`Are you sure you want to delete the folder "${folderName}"? Playlists will not be deleted.`)) return;
+    const updated = { ...folders };
+    delete updated[folderName];
+    setFolders(updated);
+    localStorage.setItem('vibeify_folders', JSON.stringify(updated));
+    if (activeOrganizerFolder === folderName) {
+      setActiveOrganizerFolder('all');
+    }
+  };
+
+  const handleMovePlaylistsToFolder = (playlistIds: string[], folderName: string) => {
+    const updated = { ...folders };
+    if (!updated[folderName]) {
+      updated[folderName] = [];
+    }
+    playlistIds.forEach(id => {
+      if (!updated[folderName].includes(id)) {
+        updated[folderName].push(id);
+      }
+    });
+    setFolders(updated);
+    localStorage.setItem('vibeify_folders', JSON.stringify(updated));
+    setSelectedPlaylistIds([]);
+  };
+
+  const handleRemovePlaylistsFromFolder = (playlistIds: string[], folderName: string) => {
+    if (!folders[folderName]) return;
+    const updated = {
+      ...folders,
+      [folderName]: folders[folderName].filter(id => !playlistIds.includes(id))
+    };
+    setFolders(updated);
+    localStorage.setItem('vibeify_folders', JSON.stringify(updated));
+    setSelectedPlaylistIds([]);
+  };
+
+  const handleToggleArchivePlaylists = (playlistIds: string[], shouldArchive: boolean) => {
+    let updated = [...archivedPlaylistIds];
+    if (shouldArchive) {
+      playlistIds.forEach(id => {
+        if (!updated.includes(id)) updated.push(id);
+      });
+    } else {
+      updated = updated.filter(id => !playlistIds.includes(id));
+    }
+    setArchivedPlaylistIds(updated);
+    localStorage.setItem('vibeify_archived_playlists', JSON.stringify(updated));
+    setSelectedPlaylistIds([]);
+  };
+
+  const handleBulkDeletePlaylists = async (playlistIds: string[]) => {
+    if (!token) return;
+    const message = playlistIds.length === 1 
+      ? "Are you sure you want to delete/unfollow this playlist on Spotify?" 
+      : `Are you sure you want to delete/unfollow these ${playlistIds.length} playlists on Spotify?`;
+    if (!confirm(message)) return;
+    
+    setIsProcessing(true);
+    setAppState(AppState.GENERATING);
+    try {
+      for (const id of playlistIds) {
+        await SpotifyService.unfollowPlaylist(token, id);
+      }
+      
+      const updatedPlaylists = userPlaylists.filter(pl => !playlistIds.includes(pl.id));
+      setUserPlaylists(updatedPlaylists);
+      
+      const cleanFolders = { ...folders };
+      Object.keys(cleanFolders).forEach(fName => {
+        cleanFolders[fName] = cleanFolders[fName].filter(id => !playlistIds.includes(id));
+      });
+      setFolders(cleanFolders);
+      localStorage.setItem('vibeify_folders', JSON.stringify(cleanFolders));
+      
+      const cleanArchived = archivedPlaylistIds.filter(id => !playlistIds.includes(id));
+      setArchivedPlaylistIds(cleanArchived);
+      localStorage.setItem('vibeify_archived_playlists', JSON.stringify(cleanArchived));
+      
+      setSelectedPlaylistIds([]);
+      alert("Playlists deleted/unfollowed successfully!");
+    } catch (err) {
+      console.error("Failed to bulk delete playlists:", err);
+      alert("Failed to delete all playlists. Some playlists might not have been deleted.");
+    } finally {
+      setIsProcessing(false);
+      setAppState(AppState.PLAYLIST_ORGANIZER);
     }
   };
 
@@ -2533,11 +2666,13 @@ export default function App() {
                       className="w-full bg-black/40 text-white p-4 rounded-xl border border-[#333] focus:border-purple-500/50 outline-none transition-all text-sm cursor-pointer"
                     >
                       <option value="">-- Select a Playlist --</option>
-                      {userPlaylists.map((pl) => (
-                        <option key={pl.id} value={pl.id}>
-                          {pl.name} ({pl.tracks.total} songs)
-                        </option>
-                      ))}
+                      {userPlaylists
+                        .filter(pl => !archivedPlaylistIds.includes(pl.id))
+                        .map((pl) => (
+                          <option key={pl.id} value={pl.id}>
+                            {pl.name} ({pl.tracks.total} songs)
+                          </option>
+                        ))}
                     </select>
                   )}
                 </div>
@@ -2555,7 +2690,7 @@ export default function App() {
                     >
                       <option value="">-- None (Do not merge) --</option>
                       {userPlaylists
-                        .filter(pl => pl.id !== selectedBasePlaylistId)
+                        .filter(pl => pl.id !== selectedBasePlaylistId && !archivedPlaylistIds.includes(pl.id))
                         .map((pl) => (
                           <option key={pl.id} value={pl.id}>
                             {pl.name} ({pl.tracks.total} songs)
@@ -2759,6 +2894,342 @@ export default function App() {
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      </MainLayout>
+    );
+  }
+
+  if (appState === AppState.PLAYLIST_ORGANIZER) {
+    let displayedPlaylists = [...userPlaylists];
+    
+    if (activeOrganizerFolder === 'all') {
+      displayedPlaylists = displayedPlaylists.filter(pl => !archivedPlaylistIds.includes(pl.id));
+    } else if (activeOrganizerFolder === 'archived') {
+      displayedPlaylists = displayedPlaylists.filter(pl => archivedPlaylistIds.includes(pl.id));
+    } else {
+      const folderPlaylistIds = folders[activeOrganizerFolder] || [];
+      displayedPlaylists = displayedPlaylists.filter(pl => folderPlaylistIds.includes(pl.id));
+    }
+
+    if (organizerSearch.trim()) {
+      displayedPlaylists = displayedPlaylists.filter(pl => 
+        pl.name.toLowerCase().includes(organizerSearch.toLowerCase())
+      );
+    }
+
+    displayedPlaylists.sort((a, b) => {
+      if (organizerSort === 'name-asc') {
+        return a.name.localeCompare(b.name);
+      } else if (organizerSort === 'name-desc') {
+        return b.name.localeCompare(a.name);
+      } else if (organizerSort === 'tracks-desc') {
+        return b.tracks.total - a.tracks.total;
+      } else if (organizerSort === 'tracks-asc') {
+        return a.tracks.total - b.tracks.total;
+      }
+      return 0;
+    });
+
+    return (
+      <MainLayout sidebarProps={sidebarProps} onOpenMobileMenu={() => setIsMobileMenuOpen(true)}>
+        <div className="p-6 md:p-12 pb-32 flex flex-col gap-8 h-full max-w-[1600px] mx-auto animate-in fade-in duration-500">
+          <header className="mb-4">
+            <h1 className="text-3xl md:text-5xl font-black mb-2 text-white tracking-tight flex items-center gap-3">
+              <Folder className="text-[#1DB954]" size={36} /> Playlist Organizer
+            </h1>
+            <p className="text-sm md:text-base text-gray-400">Sort, tag in folders, archive, or bulk delete your playlists to keep your library clean.</p>
+          </header>
+
+          <div className="flex flex-col lg:flex-row gap-8 items-stretch flex-1 min-h-0">
+            {/* LEFT FOLDER MANAGEMENT PANE */}
+            <div className="w-full lg:w-[280px] xl:w-[320px] shrink-0 bg-[#181818] border border-white/5 p-6 rounded-3xl shadow-2xl flex flex-col justify-between h-fit gap-6">
+              <div className="space-y-4">
+                <h4 className="text-xs font-black text-gray-500 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                  Folders & Views
+                </h4>
+                
+                <div className="space-y-1">
+                  <button
+                    onClick={() => { setActiveOrganizerFolder('all'); setSelectedPlaylistIds([]); }}
+                    className={`w-full flex items-center justify-between p-3 rounded-xl transition-all text-sm font-bold ${
+                      activeOrganizerFolder === 'all'
+                        ? 'bg-[#1DB954] text-black shadow-lg shadow-[#1DB954]/20'
+                        : 'text-gray-300 hover:bg-white/5 hover:text-white'
+                    }`}
+                  >
+                    <span className="flex items-center gap-2">
+                      <Library size={16} /> All Playlists
+                    </span>
+                    <span className="text-xs opacity-75">
+                      {userPlaylists.filter(pl => !archivedPlaylistIds.includes(pl.id)).length}
+                    </span>
+                  </button>
+
+                  <button
+                    onClick={() => { setActiveOrganizerFolder('archived'); setSelectedPlaylistIds([]); }}
+                    className={`w-full flex items-center justify-between p-3 rounded-xl transition-all text-sm font-bold ${
+                      activeOrganizerFolder === 'archived'
+                        ? 'bg-amber-600 text-white shadow-lg shadow-amber-600/20'
+                        : 'text-gray-300 hover:bg-white/5 hover:text-white'
+                    }`}
+                  >
+                    <span className="flex items-center gap-2">
+                      <Archive size={16} /> Virtual Archive
+                    </span>
+                    <span className="text-xs opacity-75">{archivedPlaylistIds.length}</span>
+                  </button>
+
+                  <div className="h-px bg-white/5 my-4" />
+
+                  {Object.keys(folders).length === 0 ? (
+                    <p className="text-xs text-gray-500 italic p-3 text-center">No custom folders created yet.</p>
+                  ) : (
+                    Object.keys(folders).map((fName) => (
+                      <div
+                        key={fName}
+                        className={`group w-full flex items-center justify-between rounded-xl transition-all overflow-hidden ${
+                          activeOrganizerFolder === fName
+                            ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/20'
+                            : 'text-gray-300 hover:bg-white/5 hover:text-white'
+                        }`}
+                      >
+                        <button
+                          onClick={() => { setActiveOrganizerFolder(fName); setSelectedPlaylistIds([]); }}
+                          className="flex-1 flex items-center justify-between p-3 text-sm font-bold text-left"
+                        >
+                          <span className="flex items-center gap-2 truncate pr-2">
+                            <Folder size={16} className={activeOrganizerFolder === fName ? 'text-white' : 'text-purple-400'} />
+                            <span className="truncate">{fName}</span>
+                          </span>
+                          <span className="text-xs opacity-75">
+                            {userPlaylists.filter(pl => (folders[fName] || []).includes(pl.id)).length}
+                          </span>
+                        </button>
+                        <button
+                          onClick={() => handleDeleteFolder(fName)}
+                          className="p-3 opacity-0 group-hover:opacity-100 hover:bg-black/20 text-gray-400 hover:text-red-400 transition-all"
+                          title="Delete folder container"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <Button
+                variant="outline"
+                onClick={() => {
+                  const name = prompt("Enter a name for the new folder:");
+                  if (name) handleCreateFolder(name);
+                }}
+                className="w-full flex items-center justify-center gap-2 border-purple-500/30 hover:border-purple-500/60 hover:bg-purple-950/20 text-purple-300 py-3 font-bold text-xs uppercase tracking-wider animate-pulse"
+              >
+                <Plus size={14} /> Create Folder
+              </Button>
+            </div>
+
+            {/* RIGHT MAIN ORGANIZER TABLE */}
+            <div className="flex-1 min-w-0 bg-[#181818] border border-white/5 rounded-3xl shadow-2xl p-6 md:p-8 flex flex-col h-full min-h-[500px]">
+              <div className="flex flex-col md:flex-row gap-4 justify-between items-center mb-6">
+                <div className="relative w-full md:w-80 group">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400 group-focus-within:text-[#1DB954] transition-colors">
+                    <Search size={18} />
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Search folder playlists..."
+                    value={organizerSearch}
+                    onChange={(e) => setOrganizerSearch(e.target.value)}
+                    className="w-full bg-black/40 border border-[#333] focus:border-[#1DB954] rounded-full py-2.5 pl-10 pr-4 text-xs focus:outline-none transition-all text-white placeholder-gray-500"
+                  />
+                </div>
+
+                <div className="flex items-center gap-3 w-full md:w-auto shrink-0 justify-end">
+                  <span className="text-xs text-gray-500 font-bold uppercase tracking-wider">Sort:</span>
+                  <select
+                    value={organizerSort}
+                    onChange={(e) => setOrganizerSort(e.target.value)}
+                    className="bg-black/40 text-white px-3 py-2 rounded-xl border border-[#333] text-xs outline-none transition-all cursor-pointer focus:border-[#1DB954]/50"
+                  >
+                    <option value="name-asc">Name (A-Z)</option>
+                    <option value="name-desc">Name (Z-A)</option>
+                    <option value="tracks-desc">Songs Count (Desc)</option>
+                    <option value="tracks-asc">Songs Count (Asc)</option>
+                  </select>
+                </div>
+              </div>
+
+              {selectedPlaylistIds.length > 0 && (
+                <div className="bg-purple-950/20 border border-purple-500/20 px-4 py-3 rounded-2xl flex flex-wrap gap-4 items-center justify-between mb-6 animate-in slide-in-from-top duration-300">
+                  <div className="text-xs font-bold text-purple-300">
+                    {selectedPlaylistIds.length} playlists selected
+                  </div>
+                  
+                  <div className="flex flex-wrap gap-2 items-center">
+                    {Object.keys(folders).length > 0 && (
+                      <select
+                        onChange={(e) => {
+                          if (e.target.value) {
+                            handleMovePlaylistsToFolder(selectedPlaylistIds, e.target.value);
+                            e.target.value = '';
+                          }
+                        }}
+                        className="bg-purple-900/40 text-purple-200 border border-purple-900/50 px-3 py-1.5 rounded-lg text-xs outline-none cursor-pointer hover:bg-purple-900/60"
+                      >
+                        <option value="">Move to Folder...</option>
+                        {Object.keys(folders).map(fName => (
+                          <option key={fName} value={fName}>{fName}</option>
+                        ))}
+                      </select>
+                    )}
+
+                    {activeOrganizerFolder === 'archived' ? (
+                      <button
+                        onClick={() => handleToggleArchivePlaylists(selectedPlaylistIds, false)}
+                        className="bg-amber-600/20 border border-amber-600/30 text-amber-300 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-amber-600/30 transition-all"
+                      >
+                        Restore from Archive
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => handleToggleArchivePlaylists(selectedPlaylistIds, true)}
+                        className="bg-amber-900/20 border border-amber-900/30 text-amber-300 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-amber-900/30 transition-all"
+                      >
+                        Move to Archive
+                      </button>
+                    )}
+
+                    <button
+                      onClick={() => handleBulkDeletePlaylists(selectedPlaylistIds)}
+                      className="bg-red-950/40 border border-red-900/50 text-red-400 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-red-900/40 transition-all flex items-center gap-1"
+                    >
+                      <Trash2 size={12} /> Delete from Spotify
+                    </button>
+
+                    <button
+                      onClick={() => setSelectedPlaylistIds([])}
+                      className="text-xs text-gray-500 hover:text-white px-2 py-1.5 transition-colors"
+                    >
+                      Deselect
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex-1 overflow-y-auto custom-scrollbar pr-1">
+                {displayedPlaylists.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-20 text-center text-gray-500">
+                    <Folder size={48} className="text-gray-700 mb-3" />
+                    <p className="text-sm font-bold">No playlists found</p>
+                    <p className="text-xs text-gray-600 mt-1">Try changing your search filters or selected folders.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    {displayedPlaylists.map((pl) => {
+                      const isChecked = selectedPlaylistIds.includes(pl.id);
+                      const isArchived = archivedPlaylistIds.includes(pl.id);
+                      const plFolders = Object.keys(folders).filter(fName => (folders[fName] || []).includes(pl.id));
+
+                      return (
+                        <div
+                          key={pl.id}
+                          className={`flex items-center justify-between p-3 rounded-2xl border transition-all ${
+                            isChecked
+                              ? 'bg-purple-950/10 border-purple-500/20 shadow-md'
+                              : 'bg-white/2 border-white/2 hover:bg-white/5 hover:border-white/5'
+                          }`}
+                        >
+                          <div className="flex items-center gap-4 min-w-0">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={() => {
+                                if (isChecked) {
+                                  setSelectedPlaylistIds(selectedPlaylistIds.filter(id => id !== pl.id));
+                                } else {
+                                  setSelectedPlaylistIds([...selectedPlaylistIds, pl.id]);
+                                }
+                              }}
+                              className="accent-[#1DB954] w-4 h-4 rounded cursor-pointer shrink-0"
+                            />
+
+                            {pl.images?.[0]?.url ? (
+                              <img src={pl.images[0].url} alt={pl.name} className="w-12 h-12 rounded-xl object-cover shadow-lg shrink-0" />
+                            ) : (
+                              <div className="w-12 h-12 bg-white/5 rounded-xl flex items-center justify-center text-white/20 shrink-0 border border-white/5">
+                                <Music size={20} />
+                              </div>
+                            )}
+
+                            <div className="min-w-0 space-y-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-bold text-white text-sm truncate">{pl.name}</span>
+                                {isArchived && (
+                                  <span className="bg-amber-900/30 text-amber-400 border border-amber-900/50 text-[8px] font-black uppercase px-1.5 py-0.2 rounded tracking-widest shrink-0">
+                                    Archived
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2 flex-wrap text-xs">
+                                <span className="text-gray-400 font-medium">{pl.tracks.total} songs</span>
+                                <span className="text-gray-650">•</span>
+                                <span className="text-gray-500">by {pl.owner.display_name}</span>
+                                
+                                {plFolders.map(fName => (
+                                  <span
+                                    key={fName}
+                                    className="bg-purple-900/20 text-purple-300 border border-purple-900/40 text-[9px] font-bold px-1.5 py-0.2 rounded-full flex items-center gap-1"
+                                  >
+                                    {fName}
+                                    <button
+                                      onClick={() => handleRemovePlaylistsFromFolder([pl.id], fName)}
+                                      className="hover:text-red-400 text-[10px] font-black leading-none"
+                                    >
+                                      ×
+                                    </button>
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1.5 shrink-0 opacity-40 hover:opacity-100 group-hover:opacity-100 transition-opacity">
+                            {isArchived ? (
+                              <button
+                                onClick={() => handleToggleArchivePlaylists([pl.id], false)}
+                                className="p-2 text-gray-400 hover:text-amber-400 rounded-lg hover:bg-white/5 transition-all"
+                                title="Restore from Archive"
+                              >
+                                <Archive size={16} />
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleToggleArchivePlaylists([pl.id], true)}
+                                className="p-2 text-gray-400 hover:text-amber-400 rounded-lg hover:bg-white/5 transition-all"
+                                title="Move to Archive"
+                              >
+                                <Archive size={16} />
+                              </button>
+                            )}
+
+                            <button
+                              onClick={() => handleBulkDeletePlaylists([pl.id])}
+                              className="p-2 text-gray-400 hover:text-red-500 rounded-lg hover:bg-white/5 transition-all"
+                              title="Delete from Spotify"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>

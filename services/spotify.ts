@@ -502,3 +502,14 @@ export const fetchPlaylistMetadata = async (token: string, playlistId: string): 
     owner: { display_name: data.owner.display_name }
   };
 };
+
+/**
+ * Unfollows (deletes) a playlist on Spotify.
+ */
+export const unfollowPlaylist = async (token: string, playlistId: string): Promise<void> => {
+  const res = await fetch(`https://api.spotify.com/v1/playlists/${playlistId}/followers`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  if (!res.ok) throw new Error("Failed to unfollow playlist on Spotify");
+};
