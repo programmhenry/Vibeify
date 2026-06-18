@@ -57,7 +57,23 @@ export enum AppState {
   GENERATING = 'GENERATING',
   RESULT = 'RESULT',
   SAVED_VIBES = 'SAVED_VIBES',
-  CULTURE_DECK = 'CULTURE_DECK'
+  CULTURE_DECK = 'CULTURE_DECK',
+  PLAYLIST_STUDIO = 'PLAYLIST_STUDIO'
+}
+
+export interface SimplifiedPlaylist {
+  id: string;
+  name: string;
+  images: { url: string }[];
+  tracks: { total: number };
+  owner: { display_name: string };
+}
+
+export interface PlaylistRemixResponse {
+  playlistName: string;
+  description: string;
+  remixNotes: string;
+  selectedUris: string[];
 }
 
 export interface CultureDeckTrack {

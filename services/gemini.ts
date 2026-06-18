@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { SpotifyTrack, CultureDeck, CultureDeckTrack } from '../types';
+import { SpotifyTrack, CultureDeck, CultureDeckTrack, PlaylistRemixResponse } from '../types';
 
 let cachedAI: GoogleGenAI | null = null;
 let cachedKey: string = '';
@@ -442,4 +442,77 @@ export const rerollCultureDeck = async (
 
   if (!response.text) throw new Error("AI returned empty response");
   return JSON.parse(response.text) as CultureDeckResponse;
+};
+
+export const remixPlaylist = async (
+  baseTracks: SpotifyTrack[],
+  secondaryTracks: SpotifyTrack[],
+  secondaryExtractCount: number,
+  instructions: string
+): Promise<PlaylistRemixResponse> => {
+  const simplifiedBase = baseTracks.map(t => ({
+    uri: t.uri,
+    artist: t.artists[0]?.name || 'Unknown',
+    title: t.name,
+    release_date: t.album.release_date || 'Unknown'
+  }));
+
+  const simplifiedSecondary = secondaryTracks.map(t => ({
+    uri: t.uri,
+    artist: t.artists[0]?.name || 'Unknown',
+    title: t.name,
+    release_date: t.album.release_date || 'Unknown'
+  }));
+
+  const systemInstruction = `
+    You are an expert music curator, professional DJ, and playlist programmer.
+    Your task is to take a base playlist (Base Tracks) and optional secondary playlist (Secondary Tracks), merge and select tracks, and re-order them according to the user's specific Instructions.
+    
+    RULES:
+    1. INPUT SELECTION: If Secondary Tracks are provided and extractCount > 0, choose exactly extractCount tracks from the Secondary Tracks that best fit the theme/vibe of the instructions and the Base Tracks.
+    2. MERGE & TRANSITION: Merge these chosen tracks into the Base Tracks.
+    3. REMIX & RE-ORDER: Sort and filter the combined tracklist precisely according to the user's Instructions (e.g. from chill/ambient to high-energy party bangers, chronologically, by tempo, or cross-genre flow).
+    4. PRESERVE URIS: You MUST only return the URIs of the tracks you selected in the final array. The final list of URIs should contain exactly the tracks in the sorted order. Do not hallucinate or use any URIs that were not in the inputs.
+    5. OUTPUT FORMAT: Return a strict JSON object with:
+       - playlistName: A creative, catchy new name for the remixed playlist.
+       - description: A short, compelling description.
+       - remixNotes: Detailed notes explaining the transition flow, which tracks were added, and why.
+       - selectedUris: Array of Spotify URIs in the exact desired playback sequence.
+  `;
+
+  const userPrompt = `
+    Instructions: "${instructions}"
+    Secondary Extract Count: ${secondaryExtractCount}
+    
+    Base Tracks (${simplifiedBase.length}):
+    ${JSON.stringify(simplifiedBase)}
+    
+    Secondary Tracks (${simplifiedSecondary.length}):
+    ${JSON.stringify(simplifiedSecondary)}
+  `;
+
+  const response = await getAI().models.generateContent({
+    model: 'gemini-3-flash-preview',
+    contents: userPrompt,
+    config: {
+      systemInstruction: systemInstruction,
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          playlistName: { type: Type.STRING },
+          description: { type: Type.STRING },
+          remixNotes: { type: Type.STRING },
+          selectedUris: {
+            type: Type.ARRAY,
+            items: { type: Type.STRING }
+          }
+        },
+        required: ["playlistName", "description", "remixNotes", "selectedUris"]
+      }
+    }
+  });
+
+  if (!response.text) throw new Error("AI returned empty response");
+  return JSON.parse(response.text) as PlaylistRemixResponse;
 };

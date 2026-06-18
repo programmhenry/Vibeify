@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { AppState, SpotifyUser, SpotifyTrack, GenerationRequest, Seed, CultureDeck, CultureDeckTrack } from './types';
+import { AppState, SpotifyUser, SpotifyTrack, GenerationRequest, Seed, CultureDeck, CultureDeckTrack, SimplifiedPlaylist, PlaylistRemixResponse } from './types';
 import * as SpotifyService from './services/spotify';
 import * as GeminiService from './services/gemini';
 import {
@@ -32,7 +32,8 @@ import {
   User,
   Share2,
   BarChart3,
-  Dna
+  Dna,
+  Sliders
 } from 'lucide-react';
 import * as DBService from './services/db';
 import {
@@ -125,6 +126,18 @@ const Sidebar = ({
                 className={`flex items-center gap-3 w-full text-left transition-colors ${appState === AppState.CULTURE_DECK ? 'text-[#1DB954] font-bold' : 'text-gray-300 hover:text-white'}`}
               >
                 <Compass size={18} /> Culture Deck
+              </button>
+              <button
+                onClick={() => {
+                  setAppState(AppState.PLAYLIST_STUDIO);
+                  if (token && userPlaylists.length === 0) {
+                    loadUserPlaylists(token);
+                  }
+                  onClose();
+                }}
+                className={`flex items-center gap-3 w-full text-left transition-colors ${appState === AppState.PLAYLIST_STUDIO ? 'text-[#1DB954] font-bold' : 'text-gray-300 hover:text-white'}`}
+              >
+                <Sliders size={18} /> Playlist Studio
               </button>
               <button
                 onClick={() => { setAppState(AppState.SAVED_VIBES); onClose(); }}
@@ -733,6 +746,16 @@ export default function App() {
   const [isRescanning, setIsRescanning] = useState(false);
   const [isRefreshingVibes, setIsRefreshingVibes] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  // Playlist Studio States
+  const [userPlaylists, setUserPlaylists] = useState<SimplifiedPlaylist[]>([]);
+  const [playlistStudioLoading, setPlaylistStudioLoading] = useState(false);
+  const [selectedBasePlaylistId, setSelectedBasePlaylistId] = useState<string>('');
+  const [selectedSecondaryPlaylistId, setSelectedSecondaryPlaylistId] = useState<string>('');
+  const [secondaryExtractCount, setSecondaryExtractCount] = useState<number>(10);
+  const [remixInstructions, setRemixInstructions] = useState<string>('');
+  const [remixResult, setRemixResult] = useState<PlaylistRemixResponse | null>(null);
+  const [remixResultTracks, setRemixResultTracks] = useState<SpotifyTrack[] | null>(null);
 
   // Culture Deck States
   const [generatedCultureDeck, setGeneratedCultureDeck] = useState<CultureDeck | null>(null);
@@ -1583,6 +1606,102 @@ export default function App() {
     alert("Culture Deck saved to your local library!");
   };
 
+  const resolveTracksFromUris = (uris: string[], baseTracks: SpotifyTrack[], secondaryTracks: SpotifyTrack[]): SpotifyTrack[] => {
+    const trackMap = new Map<string, SpotifyTrack>();
+    baseTracks.forEach(t => trackMap.set(t.uri, t));
+    secondaryTracks.forEach(t => trackMap.set(t.uri, t));
+    
+    return uris
+      .map(uri => trackMap.get(uri))
+      .filter((t): t is SpotifyTrack => !!t);
+  };
+
+  const loadUserPlaylists = async (authToken: string) => {
+    setPlaylistStudioLoading(true);
+    try {
+      const data = await SpotifyService.fetchUserPlaylists(authToken);
+      setUserPlaylists(data);
+    } catch (err) {
+      console.error("Failed to load user playlists:", err);
+      alert("Failed to load your Spotify playlists.");
+    } finally {
+      setPlaylistStudioLoading(false);
+    }
+  };
+
+  const handleRemixPlaylist = async () => {
+    if (!token || !selectedBasePlaylistId) return;
+    setIsProcessing(true);
+    setAppState(AppState.GENERATING);
+    try {
+      // 1. Fetch tracks for base playlist
+      const baseTracks = await SpotifyService.fetchPlaylistTracks(token, selectedBasePlaylistId);
+      
+      // 2. Fetch tracks for secondary playlist if selected
+      let secondaryTracks: SpotifyTrack[] = [];
+      if (selectedSecondaryPlaylistId) {
+        secondaryTracks = await SpotifyService.fetchPlaylistTracks(token, selectedSecondaryPlaylistId);
+      }
+      
+      // 3. Remix via Gemini
+      const result = await GeminiService.remixPlaylist(
+        baseTracks,
+        secondaryTracks,
+        secondaryExtractCount,
+        remixInstructions
+      );
+      
+      // 4. Resolve track objects
+      const resolved = resolveTracksFromUris(result.selectedUris, baseTracks, secondaryTracks);
+      
+      setRemixResult(result);
+      setRemixResultTracks(resolved);
+      setPlaylistLink(null); // Reset export link
+      setAppState(AppState.PLAYLIST_STUDIO);
+    } catch (err) {
+      console.error("Playlist remix failed:", err);
+      alert("Failed to remix playlist. Please try again.");
+      setAppState(AppState.PLAYLIST_STUDIO);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleSaveRemixToSpotify = async () => {
+    if (!token || !user || !remixResult) return;
+    setIsProcessing(true);
+    try {
+      const link = await SpotifyService.createPlaylist(
+        token,
+        user.id,
+        remixResult.playlistName,
+        `${remixResult.description} (Remixed via Vibeify AI)`,
+        remixResult.selectedUris
+      );
+      setPlaylistLink(link);
+    } catch (e) {
+      alert("Failed to save remixed playlist to Spotify.");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleSaveRemixToLibrary = async () => {
+    if (!remixResult || !remixResultTracks) return;
+    const newMix: any = {
+      id: crypto.randomUUID(),
+      name: remixResult.playlistName,
+      description: remixResult.description,
+      uris: remixResult.selectedUris,
+      reasoning: "Playlist Remix: " + remixResult.remixNotes.slice(0, 150) + "...",
+      createdAt: Date.now(),
+      isCultureDeck: false
+    };
+    await DBService.savePlaylist(newMix);
+    setMyMixes([newMix, ...myMixes]);
+    alert("Remixed playlist saved to your local library!");
+  };
+
   const reset = () => {
     setAppState(AppState.DASHBOARD);
     setGeneratedResult(null);
@@ -2335,6 +2454,243 @@ export default function App() {
                           </div>
                         );
                       })}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </MainLayout>
+    );
+  }
+
+  if (appState === AppState.PLAYLIST_STUDIO) {
+    return (
+      <MainLayout sidebarProps={sidebarProps} onOpenMobileMenu={() => setIsMobileMenuOpen(true)}>
+        <div className="p-6 md:p-12 pb-32 flex flex-col gap-8 h-full max-w-[1600px] mx-auto animate-in fade-in duration-500">
+          <header className="mb-4">
+            <h1 className="text-3xl md:text-5xl font-black mb-2 text-white tracking-tight flex items-center gap-3">
+              <Sliders className="text-purple-500 animate-pulse" size={36} /> Playlist Studio
+            </h1>
+            <p className="text-sm md:text-base text-gray-400">Combine, transition, and sort your existing playlists using advanced AI curation.</p>
+          </header>
+
+          <div className="flex flex-col lg:flex-row gap-8 items-stretch flex-1 min-h-0">
+            {/* LEFT CONTROL PANEL */}
+            <div className="w-full lg:w-[420px] xl:w-[450px] shrink-0 bg-[#181818] border border-white/5 p-6 rounded-3xl shadow-2xl flex flex-col gap-6 select-none justify-between h-fit">
+              <div className="space-y-6">
+                
+                {/* Base Playlist Selection */}
+                <div>
+                  <label className="block text-xs text-gray-500 mb-2 uppercase font-black tracking-widest">Base Playlist</label>
+                  {playlistStudioLoading ? (
+                    <div className="h-12 bg-white/5 animate-pulse rounded-xl" />
+                  ) : (
+                    <select
+                      value={selectedBasePlaylistId}
+                      onChange={(e) => setSelectedBasePlaylistId(e.target.value)}
+                      className="w-full bg-black/40 text-white p-4 rounded-xl border border-[#333] focus:border-purple-500/50 outline-none transition-all text-sm cursor-pointer"
+                    >
+                      <option value="">-- Select a Playlist --</option>
+                      {userPlaylists.map((pl) => (
+                        <option key={pl.id} value={pl.id}>
+                          {pl.name} ({pl.tracks.total} songs)
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+
+                {/* Secondary Playlist Selection */}
+                <div>
+                  <label className="block text-xs text-gray-500 mb-2 uppercase font-black tracking-widest">Secondary Playlist (Optional Merge)</label>
+                  {playlistStudioLoading ? (
+                    <div className="h-12 bg-white/5 animate-pulse rounded-xl" />
+                  ) : (
+                    <select
+                      value={selectedSecondaryPlaylistId}
+                      onChange={(e) => setSelectedSecondaryPlaylistId(e.target.value)}
+                      className="w-full bg-black/40 text-white p-4 rounded-xl border border-[#333] focus:border-purple-500/50 outline-none transition-all text-sm cursor-pointer"
+                    >
+                      <option value="">-- None (Do not merge) --</option>
+                      {userPlaylists
+                        .filter(pl => pl.id !== selectedBasePlaylistId)
+                        .map((pl) => (
+                          <option key={pl.id} value={pl.id}>
+                            {pl.name} ({pl.tracks.total} songs)
+                          </option>
+                        ))}
+                    </select>
+                  )}
+                </div>
+
+                {/* Secondary extract count slider */}
+                {selectedSecondaryPlaylistId && (
+                  <div className="space-y-2 animate-in slide-in-from-top duration-300">
+                    <div className="flex justify-between text-xs font-black uppercase tracking-widest text-gray-500">
+                      <span>Tracks to Extract</span>
+                      <span className="text-purple-400 font-mono">{secondaryExtractCount} tracks</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="1"
+                      max="30"
+                      value={secondaryExtractCount}
+                      onChange={(e) => setSecondaryExtractCount(parseInt(e.target.value))}
+                      className="w-full accent-purple-500 bg-black/40 h-2 rounded-lg cursor-pointer"
+                    />
+                  </div>
+                )}
+
+                {/* Free text instructions prompt */}
+                <div>
+                  <label className="block text-xs text-gray-500 mb-2 uppercase font-black tracking-widest">Remix Instructions</label>
+                  <textarea
+                    value={remixInstructions}
+                    onChange={(e) => setRemixInstructions(e.target.value)}
+                    placeholder="e.g. Sort the base playlist from chill to energetic party bangers, and merge 10 fitting high-energy tracks from Playlist 2."
+                    rows={4}
+                    className="w-full bg-black/40 text-white p-4 rounded-xl border border-[#333] focus:border-purple-500/50 outline-none transition-all placeholder:text-gray-600 text-sm resize-none"
+                  />
+                </div>
+
+                {/* Preset Prompt Suggestions */}
+                <div className="space-y-2">
+                  <span className="block text-[10px] text-gray-500 uppercase font-black tracking-widest">Quick Templates</span>
+                  <div className="flex flex-col gap-2">
+                    {[
+                      { text: "Sort from slow/chill to fast/party, building up energy.", label: "Chill to Party Build" },
+                      { text: "Sort in reverse chronological order (newest songs first) and filter out duplicates.", label: "Newest First" },
+                      { text: "Merge the most energetic tracks and make a perfect workout mix.", label: "High-Energy Workout Merge" }
+                    ].map((tpl, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => setRemixInstructions(tpl.text)}
+                        className="text-left w-full p-2 bg-white/5 border border-white/5 hover:border-purple-500/30 rounded-lg text-xs text-gray-300 hover:text-white transition-all font-medium"
+                      >
+                        {tpl.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Action button */}
+                <Button
+                  onClick={handleRemixPlaylist}
+                  disabled={!selectedBasePlaylistId || !remixInstructions.trim() || isProcessing}
+                  className="w-full bg-purple-600 text-white hover:bg-purple-500 py-4 text-base font-bold shadow-lg"
+                >
+                  {isProcessing ? <Loader2 className="animate-spin" /> : 'Remix Playlist'}
+                </Button>
+              </div>
+
+              {/* Loader indicator if userPlaylists is loading initially */}
+              {playlistStudioLoading && (
+                <div className="text-center text-xs text-gray-500 animate-pulse">
+                  Syncing your Spotify playlists...
+                </div>
+              )}
+            </div>
+
+            {/* RIGHT PLAYLIST CANVAS */}
+            <div className="flex-1 min-w-0 flex flex-col justify-stretch">
+              {!remixResult ? (
+                /* Vinyl Mockup Placeholder */
+                <div className="flex flex-col items-center justify-center h-full text-center p-8 bg-white/5 backdrop-blur-md rounded-3xl border border-white/5 shadow-2xl relative overflow-hidden min-h-[500px] animate-in fade-in duration-700">
+                  <div className="absolute inset-0 bg-purple-500/5 blur-3xl rounded-full opacity-50 pointer-events-none" />
+                  <div className="relative group mb-8">
+                    <div className="absolute inset-0 bg-purple-500/20 blur-3xl rounded-full opacity-50 group-hover:opacity-100 transition-opacity animate-pulse" />
+                    <div className="relative w-48 h-48 bg-black rounded-full shadow-2xl border-4 border-white/10 flex items-center justify-center animate-spin" style={{ animationDuration: '12s' }}>
+                      <div className="absolute inset-2 border border-white/5 rounded-full" />
+                      <div className="absolute inset-4 border border-white/5 rounded-full" />
+                      <div className="absolute inset-6 border border-white/5 rounded-full" />
+                      <div className="absolute inset-8 border border-white/5 rounded-full" />
+                      <div className="absolute inset-10 border border-white/5 rounded-full" />
+                      <div className="w-12 h-12 bg-purple-500/20 rounded-full flex items-center justify-center border-4 border-black">
+                        <Sliders size={24} className="text-purple-400" />
+                      </div>
+                    </div>
+                  </div>
+                  <h3 className="text-2xl font-black text-white mb-2 uppercase tracking-tight">Studio Monitor</h3>
+                  <p className="text-gray-400 text-sm max-w-sm leading-relaxed">
+                    Select a base playlist, configure your options and instructions on the left, and start the remix engine to preview the flow.
+                  </p>
+                </div>
+              ) : (
+                /* Remixed Playlist View */
+                <div className="bg-[#181818] border border-white/5 rounded-3xl shadow-2xl p-6 md:p-8 flex flex-col flex-1 h-full min-h-[500px] animate-in slide-in-from-right duration-500 overflow-y-auto custom-scrollbar">
+                  
+                  {/* Header metadata */}
+                  <div className="flex flex-col md:flex-row gap-6 md:gap-8 mb-8">
+                    <div className="w-36 h-36 md:w-44 md:h-44 bg-gradient-to-br from-purple-700 via-indigo-900 to-black shrink-0 shadow-2xl rounded-2xl flex items-center justify-center text-white/40 text-xs font-black uppercase tracking-widest">
+                      Remix
+                    </div>
+                    <div className="flex flex-col justify-end flex-1 min-w-0">
+                      <span className="text-[10px] md:text-xs font-bold uppercase tracking-widest text-purple-400 mb-2 flex items-center gap-1.5">
+                        <Sparkles size={12} /> Playlist Studio • Remix Complete
+                      </span>
+                      <h2 className="text-3xl md:text-4xl font-black mb-3 text-white leading-tight">
+                        {remixResult.playlistName}
+                      </h2>
+                      
+                      {/* Description */}
+                      <p className="text-sm text-gray-450 mb-3 font-medium">{remixResult.description}</p>
+                      
+                      {/* Curator briefing / reasoning notes */}
+                      <p className="text-xs md:text-sm text-gray-300 italic leading-relaxed bg-white/5 p-4 rounded-xl border border-white/5">
+                        {remixResult.remixNotes}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Actions Row */}
+                  <div className="flex flex-wrap gap-4 mb-6 border-b border-white/5 pb-6">
+                    {!playlistLink ? (
+                      <Button onClick={handleSaveRemixToSpotify} disabled={isProcessing} className="bg-purple-600 text-white hover:bg-purple-500">
+                        {isProcessing ? <Loader2 className="animate-spin" /> : 'Export to Spotify'}
+                      </Button>
+                    ) : (
+                      <a href={playlistLink} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 bg-white text-black px-6 py-3 rounded-full font-bold hover:bg-gray-200 w-fit">
+                        <CheckCircle size={20} className="text-[#1DB954]" /> Open in Spotify
+                      </a>
+                    )}
+
+                    <Button variant="outline" onClick={handleSaveRemixToLibrary}>
+                      Save to Library
+                    </Button>
+                  </div>
+
+                  {/* Playlist Tracks List */}
+                  <div className="flex-1">
+                    <div className="grid grid-cols-[30px_1fr] md:grid-cols-[40px_2fr_1fr] border-b border-white/5 pb-2 text-[10px] font-black text-gray-500 uppercase tracking-widest mb-4">
+                      <span>#</span>
+                      <span>Title</span>
+                      <span className="hidden md:inline text-right">Album</span>
+                    </div>
+
+                    <div className="space-y-1">
+                      {remixResultTracks?.map((track, idx) => (
+                        <div key={track.id + '-' + idx} className="grid grid-cols-[30px_1fr] md:grid-cols-[40px_2fr_1fr] p-3 rounded-xl hover:bg-white/5 transition-all items-center group">
+                          <span className="text-gray-500 font-mono text-sm">{idx + 1}</span>
+                          <div className="flex items-center gap-4 min-w-0 pr-4">
+                            {track.album?.images?.[2]?.url ? (
+                              <img src={track.album.images[2].url} alt={track.name} className="w-10 h-10 rounded-lg object-cover" />
+                            ) : (
+                              <div className="w-10 h-10 bg-white/5 rounded-lg flex items-center justify-center text-white/40">
+                                <Music size={16} />
+                              </div>
+                            )}
+                            <div className="min-w-0">
+                              <span className="text-white font-bold truncate text-sm block">{track.name}</span>
+                              <span className="text-gray-400 text-xs font-medium block">{track.artists[0]?.name}</span>
+                            </div>
+                          </div>
+                          <span className="hidden md:block text-right text-gray-550 text-xs truncate">
+                            {track.album?.name}
+                          </span>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 </div>

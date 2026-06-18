@@ -1,4 +1,4 @@
-import { SpotifyTrack, SpotifyUser, SpotifyAuthTokens } from '../types';
+import { SpotifyTrack, SpotifyUser, SpotifyAuthTokens, SimplifiedPlaylist } from '../types';
 
 const SCOPES = [
   'user-library-read',
@@ -427,4 +427,58 @@ export const searchTrackByNameAndArtist = async (
     console.error("Spotify track search failed:", err);
     return null;
   }
+};
+
+/**
+ * Fetches the list of the user's playlists, paging if necessary.
+ */
+export const fetchUserPlaylists = async (token: string): Promise<SimplifiedPlaylist[]> => {
+  let playlists: SimplifiedPlaylist[] = [];
+  let nextUrl: string | null = 'https://api.spotify.com/v1/me/playlists?limit=50';
+  
+  while (nextUrl) {
+    const res = await fetch(nextUrl, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (!res.ok) throw new Error("Failed to fetch user playlists");
+    const data = await res.json();
+    playlists = [...playlists, ...data.items];
+    nextUrl = data.next;
+  }
+  
+  return playlists;
+};
+
+/**
+ * Fetches all tracks from a given playlist, paging if necessary, and formats them.
+ */
+export const fetchPlaylistTracks = async (token: string, playlistId: string): Promise<SpotifyTrack[]> => {
+  let tracks: SpotifyTrack[] = [];
+  let nextUrl: string | null = `https://api.spotify.com/v1/playlists/${playlistId}/tracks?limit=100`;
+  
+  while (nextUrl) {
+    const res = await fetch(nextUrl, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (!res.ok) throw new Error("Failed to fetch playlist tracks");
+    const data = await res.json();
+    const chunk = data.items
+      .filter((item: any) => item.track) // Skip empty or deleted tracks
+      .map((item: any) => ({
+        id: item.track.id,
+        uri: item.track.uri,
+        name: item.track.name,
+        artists: item.track.artists.map((a: any) => ({ id: a.id, name: a.name })),
+        album: {
+          name: item.track.album.name,
+          images: item.track.album.images,
+          release_date: item.track.album.release_date
+        },
+        added_at: item.added_at || new Date().toISOString()
+      }));
+    tracks = [...tracks, ...chunk];
+    nextUrl = data.next;
+  }
+  
+  return tracks;
 };
