@@ -484,3 +484,21 @@ export const fetchPlaylistTracks = async (token: string, playlistId: string): Pr
   
   return tracks;
 };
+
+/**
+ * Fetches metadata for a specific playlist by ID.
+ */
+export const fetchPlaylistMetadata = async (token: string, playlistId: string): Promise<SimplifiedPlaylist> => {
+  const res = await fetch(`https://api.spotify.com/v1/playlists/${playlistId}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  if (!res.ok) throw new Error("Failed to fetch playlist metadata");
+  const data = await res.json();
+  return {
+    id: data.id,
+    name: data.name,
+    images: data.images || [],
+    tracks: { total: data.tracks.total },
+    owner: { display_name: data.owner.display_name }
+  };
+};

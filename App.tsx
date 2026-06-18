@@ -753,6 +753,7 @@ export default function App() {
   const [remixInstructions, setRemixInstructions] = useState<string>('');
   const [remixResult, setRemixResult] = useState<PlaylistRemixResponse | null>(null);
   const [remixResultTracks, setRemixResultTracks] = useState<SpotifyTrack[] | null>(null);
+  const [customPlaylistUrl, setCustomPlaylistUrl] = useState<string>('');
 
   // Culture Deck States
   const [generatedCultureDeck, setGeneratedCultureDeck] = useState<CultureDeck | null>(null);
@@ -1705,6 +1706,42 @@ export default function App() {
     alert("Remixed playlist saved to your local library!");
   };
 
+  const handleLoadCustomPlaylist = async () => {
+    if (!token || !customPlaylistUrl.trim()) return;
+    setPlaylistStudioLoading(true);
+    try {
+      const extractId = (input: string): string => {
+        const urlMatch = input.match(/\/playlist\/([a-zA-Z0-9]+)/);
+        if (urlMatch) return urlMatch[1];
+        const uriMatch = input.match(/spotify:playlist:([a-zA-Z0-9]+)/);
+        if (uriMatch) return uriMatch[1];
+        return input.trim();
+      };
+      const playlistId = extractId(customPlaylistUrl);
+      const playlistMeta = await SpotifyService.fetchPlaylistMetadata(token, playlistId);
+      
+      // Add to userPlaylists if not already present
+      if (!userPlaylists.some(pl => pl.id === playlistMeta.id)) {
+        setUserPlaylists([playlistMeta, ...userPlaylists]);
+      }
+      
+      // Auto-select as base playlist (or secondary if base is already selected)
+      if (!selectedBasePlaylistId) {
+        setSelectedBasePlaylistId(playlistMeta.id);
+      } else {
+        setSelectedSecondaryPlaylistId(playlistMeta.id);
+      }
+      
+      setCustomPlaylistUrl('');
+      alert(`Playlist "${playlistMeta.name}" loaded successfully!`);
+    } catch (err) {
+      console.error("Failed to load custom playlist:", err);
+      alert("Failed to load playlist. Please verify the URL/ID and ensure it is public or collaborative.");
+    } finally {
+      setPlaylistStudioLoading(false);
+    }
+  };
+
   const reset = () => {
     setAppState(AppState.DASHBOARD);
     setGeneratedResult(null);
@@ -2526,6 +2563,30 @@ export default function App() {
                         ))}
                     </select>
                   )}
+                </div>
+
+                {/* External Playlist URL Loader */}
+                <div className="p-4 bg-white/5 rounded-2xl border border-white/5 space-y-3">
+                  <label className="block text-[10px] text-gray-500 uppercase font-black tracking-widest">Import External Playlist</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={customPlaylistUrl}
+                      onChange={(e) => setCustomPlaylistUrl(e.target.value)}
+                      placeholder="Paste Spotify Link (e.g. from a friend)"
+                      className="flex-1 bg-black/40 text-white p-3 rounded-xl border border-[#333] focus:border-purple-500/50 outline-none transition-all placeholder:text-gray-650 text-xs"
+                    />
+                    <button
+                      onClick={handleLoadCustomPlaylist}
+                      disabled={!customPlaylistUrl.trim() || playlistStudioLoading}
+                      className="bg-purple-600 text-white hover:bg-purple-500 text-xs px-4 rounded-xl font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Import
+                    </button>
+                  </div>
+                  <p className="text-[9px] text-gray-500 leading-normal">
+                    Imports any public/shared playlist. It will automatically load, populate the selectors, and set it as your base or secondary source.
+                  </p>
                 </div>
 
                 {/* Secondary extract count slider */}
