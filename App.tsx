@@ -140,9 +140,6 @@ const Sidebar = ({
               <button
                 onClick={() => {
                   setAppState(AppState.PLAYLIST_ORGANIZER);
-                  if (token && userPlaylists.length === 0) {
-                    loadUserPlaylists(token);
-                  }
                   onClose();
                 }}
                 className={`flex items-center gap-3 w-full text-left transition-colors ${appState === AppState.PLAYLIST_ORGANIZER ? 'text-[#1DB954] font-bold' : 'text-gray-300 hover:text-white'}`}
@@ -1060,7 +1057,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (appState === AppState.PLAYLIST_STUDIO && token && userPlaylists.length === 0) {
+    if ((appState === AppState.PLAYLIST_STUDIO || appState === AppState.PLAYLIST_ORGANIZER) && token && userPlaylists.length === 0) {
       loadUserPlaylists(token);
     }
   }, [appState, token, userPlaylists.length]);
@@ -3121,7 +3118,22 @@ export default function App() {
               )}
 
               <div className="flex-1 overflow-y-auto custom-scrollbar pr-1">
-                {displayedPlaylists.length === 0 ? (
+                {playlistStudioLoading ? (
+                  <div className="space-y-3">
+                    {[1, 2, 3, 4, 5].map((i) => (
+                      <div key={i} className="flex items-center justify-between p-3 rounded-2xl border border-white/5 bg-white/2 animate-pulse">
+                        <div className="flex items-center gap-4 min-w-0 w-full">
+                          <div className="w-4.5 h-4.5 bg-white/5 rounded shrink-0" />
+                          <div className="w-12 h-12 bg-white/5 rounded-xl shrink-0" />
+                          <div className="min-w-0 space-y-2 flex-1">
+                            <div className="h-4 bg-white/5 rounded w-1/3" />
+                            <div className="h-3 bg-white/5 rounded w-1/4" />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : displayedPlaylists.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-20 text-center text-gray-500">
                     <Folder size={48} className="text-gray-700 mb-3" />
                     <p className="text-sm font-bold">No playlists found</p>
